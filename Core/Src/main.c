@@ -67,6 +67,13 @@ const osThreadAttr_t encoderTask_attributes = {
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
+/* Definitions for movementTest */
+osThreadId_t movementTestHandle;
+const osThreadAttr_t movementTest_attributes = {
+  .name = "movementTest",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -81,6 +88,7 @@ static void MX_TIM1_Init(void);
 void StartDefaultTask(void *argument);
 void displayMsg(void *argument);
 void runEncoder(void *argument);
+void movementTestTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 void motorTurn(uint8_t amt);
@@ -98,7 +106,10 @@ uint8_t BUFFER_SIZE = 4;
 uint8_t aRxBuffer[10];
 uint8_t aTxBuffer[10];
 
-uint8_t curTask = 'f';
+
+uint8_t rxTask = '_';
+uint16_t rxVal = 0;
+uint8_t rxMsg[20];
 
 uint16_t speed = 0;
 uint8_t dir = 0;
@@ -171,6 +182,9 @@ int main(void)
 
   /* creation of encoderTask */
   encoderTaskHandle = osThreadNew(runEncoder, NULL, &encoderTask_attributes);
+
+  /* creation of movementTest */
+  movementTestHandle = osThreadNew(movementTestTask, NULL, &movementTest_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -511,18 +525,36 @@ static void MX_GPIO_Init(void)
 /* USER CODE BEGIN 4 */
 // HAL_UART_RxCpltCallback evoked when buffer is full
 
-//int count=0;
-uint16_t turnVal = 0;
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef * huart) {
 	// prevent unused argument(s) compilation warning
 	UNUSED(huart);
-	curTask = aRxBuffer[0];
+	if (aRxBuffer[0] == '_') {
+		// task unrelated command: log message
+	    switch(aRxBuffer[3]) {
+	    case 'r': // rpi connect
+			sprintf(rxMsg, "rpi connected\0");
+			uint8_t * ch = "ST\r\n";
+			HAL_UART_Transmit(&huart3, (uint8_t *) &ch,4,0xFFFF);
+//			while (*msg != '\0') {
+//				HAL_UART_Transmit(&huart3, (uint8_t *) &msg,1,0xFFFF);
+//				msg++;
+//			}
+//			HAL_UART_Transmit(&huart3, (uint8_t *) &msg,16,0xFFFF);
+			break;
+	    }
+	} else {
+    	sprintf(rxMsg, "state");
+		rxTask = aRxBuffer[0];
+		rxVal = (aRxBuffer[1] - 48) * 100 + (aRxBuffer[2] - 48) * 10 + (aRxBuffer[3] - 48);
+	}
+
 //	if (aRxBuffer[0] == 's') {
 //		curTask = 's';
 	//	turnVal = (aRxBuffer[1] - 48) * 100 + (aRxBuffer[2] - 48) * 10 + (aRxBuffer[3] - 48);
 	//	htim1.Instance->CCR4 = turnVal;
 	//}
 //	count++;
+	// clear aRx buffer
 	__HAL_UART_FLUSH_DRREGISTER(&huart3);
 	HAL_UART_Receive_IT(&huart3, aRxBuffer, BUFFER_SIZE);
 	//HAL_UART_Transmit(&huart3, (uint8_t *) aTxBuffer, BUFFER_SIZE);
@@ -535,7 +567,7 @@ void motorTurn(uint8_t amt) {
 }
 
 void motorMoveForward() {
-	pwmVal = 3000;
+	pwmVal = 1500;
 	// anticlockwise (forward)
 	HAL_GPIO_WritePin(GPIOA, AIN2_Pin, GPIO_PIN_RESET);
 	HAL_GPIO_WritePin(GPIOA, AIN1_Pin, GPIO_PIN_SET);
@@ -548,7 +580,7 @@ void motorMoveForward() {
 }
 
 void motorMoveBackward() {
-	pwmVal = 3000;
+	pwmVal = 1500;
 	 // clockwise (backward)
 	HAL_GPIO_WritePin(GPIOA, AIN2_Pin, GPIO_PIN_SET);
 	HAL_GPIO_WritePin(GPIOA, AIN1_Pin, GPIO_PIN_RESET);
@@ -595,10 +627,12 @@ void StartDefaultTask(void *argument)
   {
 	 //test UART Rx
 	//HAL_UART_Transmit(&huart3, (uint8_t *) &ch,1,0xFFFF);
-//	if (ch < 'Z') ch++;
-//	else ch = 'A';
-	 curTask = aRxBuffer[0];
-	 switch(curTask) {
+	//if (ch < 'Z') ch++;
+	//else ch = 'A';
+
+	 switch(rxTask) {
+	 case '_':
+		 break;
 	 case 'f':
 		 motorTurn(145);
 		 motorMoveForward();
@@ -610,13 +644,10 @@ void StartDefaultTask(void *argument)
 	 case 's':
 		 motorStop();
 		 break;
-	 case 'l':
-		 motorTurn(95);
+	 case 't':
+		 motorTurn(rxVal);
 		 motorMoveForward();
 		 break;
-	 case 'r':
-		 motorTurn(245);
-		 motorMoveForward();
 	 default:
 		 HAL_GPIO_TogglePin(LED3_GPIO_Port, LED3_Pin);
 		 break;
@@ -638,47 +669,52 @@ void StartDefaultTask(void *argument)
 void displayMsg(void *argument)
 {
   /* USER CODE BEGIN displayMsg */
-	char msg[20] = "";
+	char msg[20];
   /* Infinite loop */
   for(;;)
   {
+	  // clear message
+	  OLED_ShowString(10,0, rxMsg);
+	  sprintf(msg, "");
+
+	  sprintf(msg, "st:%c,val:%d", rxTask, rxVal);
 	  OLED_ShowString(10, 10, msg);
-	  sprintf(msg, "bf:%s\0", aRxBuffer);
-	  OLED_ShowString(10, 20, msg);
-	  sprintf(msg, "state:%c", curTask);
-	  switch(curTask) {
+
+	  switch(rxTask) {
 	 	 case 'f':
 	 		 sprintf(msg, "Speed: %d", speed);
-	 		 OLED_ShowString(10, 30, msg);
+	 		 OLED_ShowString(10, 20, msg);
 	 		 sprintf(msg, "Dir: %d", dir);
-	 		 OLED_ShowString(10, 40, msg);
+	 		 OLED_ShowString(10, 30, msg);
 	 		 break;
 	 	 case 'b':
 	 		sprintf(msg, "Speed: %d", speed);
-			 OLED_ShowString(10, 30, msg);
+			 OLED_ShowString(10, 20, msg);
 			 sprintf(msg, "Dir: %d", dir);
-			 OLED_ShowString(10, 40, msg);
+			 OLED_ShowString(10, 30, msg);
 	 		 break;
 	 	 case 's':
 	 		 sprintf(msg, "Speed: %d", speed);
-			 OLED_ShowString(10, 30, msg);
+			 OLED_ShowString(10, 20, msg);
 			 sprintf(msg, "Dir: %d", dir);
-			 OLED_ShowString(10, 40, msg);
+			 OLED_ShowString(10, 30, msg);
 	 		 break;
 	 	 case 'l':
 	 		sprintf(msg, "Turn left");
-	 		OLED_ShowString(10, 30, msg);
+	 		OLED_ShowString(10, 20, msg);
 	 		 break;
 	 	 case 'r':
 	 		sprintf(msg, "Turn right");
-			OLED_ShowString(10, 30, msg);
+			OLED_ShowString(10, 20, msg);
 	 	 default:
 	 		 HAL_GPIO_TogglePin(LED3_GPIO_Port, LED3_Pin);
 	 		 break;
 	 	 }
 
+	sprintf(msg, "bf:%s", aRxBuffer);
+	OLED_ShowString(10, 50, msg);
 	OLED_Refresh_Gram();
-    osDelay(100);
+	osDelay(10);
   }
   /* USER CODE END displayMsg */
 }
@@ -720,6 +756,65 @@ void runEncoder(void *argument)
    // osDelay(10); //delay not suitable here, we try to get accurate encoder reading
   }
   /* USER CODE END runEncoder */
+}
+
+/* USER CODE BEGIN Header_movementTestTask */
+/**
+* @brief Function implementing the movementTest thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_movementTestTask */
+void movementTestTask(void *argument)
+{
+  /* USER CODE BEGIN movementTestTask */
+  /* Infinite loop */
+  for(;;)
+  {
+	  /*
+	sprintf(rxMsg, "forward\0");
+	motorTurn(145);
+	motorMoveForward();
+    osDelay(2000);
+
+    sprintf(rxMsg, "backward\0");
+    motorTurn(145);
+    motorMoveBackward();
+	osDelay(2000);
+
+	sprintf(rxMsg, "left\0");
+	motorTurn(95);
+	motorMoveForward();
+	osDelay(2000);
+
+	sprintf(rxMsg, "center\0");
+	motorTurn(145);
+	motorMoveForward();
+	osDelay(2000);
+
+	sprintf(rxMsg, "right\0");
+	motorTurn(245);
+	motorMoveForward();
+	osDelay(2000);
+
+	sprintf(rxMsg, "center\0");
+	motorTurn(145);
+	motorStop();
+	osDelay(2000);
+
+
+	sprintf(rxMsg, "right\0");
+	motorTurn(245);
+	motorMoveForward();
+	osDelay(5000);
+
+	sprintf(rxMsg, "stop\0");
+	motorTurn(145);
+	motorStop();
+	osDelay(1000);
+	*/
+  }
+  /* USER CODE END movementTestTask */
 }
 
 /**
