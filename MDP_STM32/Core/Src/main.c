@@ -74,6 +74,13 @@ const osThreadAttr_t movementTest_attributes = {
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
+/* Definitions for decodeRxBufferT */
+osThreadId_t decodeRxBufferTHandle;
+const osThreadAttr_t decodeRxBufferT_attributes = {
+  .name = "decodeRxBufferT",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityLow,
+};
 /* USER CODE BEGIN PV */
 
 /* USER CODE END PV */
@@ -89,11 +96,12 @@ void StartDefaultTask(void *argument);
 void displayMsg(void *argument);
 void runEncoder(void *argument);
 void movementTestTask(void *argument);
+void decodeRxBuffer(void *argument);
 
 /* USER CODE BEGIN PFP */
 void motorTurn(uint8_t amt);
-void motorMoveForward();
-void motorMoveBackward();
+void motorMoveForward(uint16_t step);
+void motorMoveBackward(uint16_t step);
 void motorStop();
 /* USER CODE END PFP */
 
@@ -186,6 +194,9 @@ int main(void)
   /* creation of movementTest */
   movementTestHandle = osThreadNew(movementTestTask, NULL, &movementTest_attributes);
 
+  /* creation of decodeRxBufferT */
+  decodeRxBufferTHandle = osThreadNew(decodeRxBuffer, NULL, &decodeRxBufferT_attributes);
+
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
   /* USER CODE END RTOS_THREADS */
@@ -269,7 +280,7 @@ static void MX_TIM1_Init(void)
 
   /* USER CODE END TIM1_Init 1 */
   htim1.Instance = TIM1;
-  htim1.Init.Prescaler = 160;
+  htim1.Init.Prescaler = 320;
   htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
   htim1.Init.Period = 1000;
   htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -531,29 +542,21 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef * huart) {
 	if (aRxBuffer[0] == '_') {
 		// task unrelated command: log message
 	    switch(aRxBuffer[3]) {
-	    case 'r': // rpi connect
-			sprintf(rxMsg, "rpi connected\0");
+	    case 'r': // rpi connected
+			sprintf(rxMsg, "%-16s", "rpi connected\0");
 			uint8_t * ch = "ST\r\n";
 			HAL_UART_Transmit(&huart3, (uint8_t *) &ch,4,0xFFFF);
-//			while (*msg != '\0') {
-//				HAL_UART_Transmit(&huart3, (uint8_t *) &msg,1,0xFFFF);
-//				msg++;
-//			}
-//			HAL_UART_Transmit(&huart3, (uint8_t *) &msg,16,0xFFFF);
 			break;
+	    case 'p': // debug bluetooth gamepad connected
+			sprintf(rxMsg, "%-16s","gpad connected\0");
+	    	break;
 	    }
 	} else {
-    	sprintf(rxMsg, "state");
+    	sprintf(rxMsg, "%-16s", "state");
 		rxTask = aRxBuffer[0];
 		rxVal = (aRxBuffer[1] - 48) * 100 + (aRxBuffer[2] - 48) * 10 + (aRxBuffer[3] - 48);
 	}
 
-//	if (aRxBuffer[0] == 's') {
-//		curTask = 's';
-	//	turnVal = (aRxBuffer[1] - 48) * 100 + (aRxBuffer[2] - 48) * 10 + (aRxBuffer[3] - 48);
-	//	htim1.Instance->CCR4 = turnVal;
-	//}
-//	count++;
 	// clear aRx buffer
 	__HAL_UART_FLUSH_DRREGISTER(&huart3);
 	HAL_UART_Receive_IT(&huart3, aRxBuffer, BUFFER_SIZE);
@@ -562,11 +565,16 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef * huart) {
 }
 
 void motorTurn(uint8_t amt) {
+	// prescaler: 160, period: 1000
 	// extreme left: 95, center: 145, extreme right: 245
-	htim1.Instance->CCR4 = (amt > 245) ? 245 : ((amt < 95) ? 95 : amt);
+	//htim1.Instance->CCR4 = (amt > 245) ? 245 : ((amt < 95) ? 95 : amt);
+
+	// prescaler: 320, period: 1000
+	//extreme left: 50, center: 75, extreme right:115
+	htim1.Instance->CCR4 = (amt > 115) ? 115 : ((amt < 50) ? 50 : amt);
 }
 
-void motorMoveForward() {
+void motorMoveForward(uint16_t step) {
 	pwmVal = 1500;
 	// anticlockwise (forward)
 	HAL_GPIO_WritePin(GPIOA, AIN2_Pin, GPIO_PIN_RESET);
@@ -579,7 +587,7 @@ void motorMoveForward() {
 	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_2, pwmVal);
 }
 
-void motorMoveBackward() {
+void motorMoveBackward(uint16_t step) {
 	pwmVal = 1500;
 	 // clockwise (backward)
 	HAL_GPIO_WritePin(GPIOA, AIN2_Pin, GPIO_PIN_SET);
@@ -634,19 +642,16 @@ void StartDefaultTask(void *argument)
 	 case '_':
 		 break;
 	 case 'f':
-		 motorTurn(145);
-		 motorMoveForward();
+		 motorMoveForward(rxVal);
 		 break;
 	 case 'b':
-		 motorTurn(145);
-		 motorMoveBackward();
+		 motorMoveBackward(rxVal);
 		 break;
 	 case 's':
 		 motorStop();
 		 break;
 	 case 't':
 		 motorTurn(rxVal);
-		 motorMoveForward();
 		 break;
 	 default:
 		 HAL_GPIO_TogglePin(LED3_GPIO_Port, LED3_Pin);
@@ -671,48 +676,40 @@ void displayMsg(void *argument)
   /* USER CODE BEGIN displayMsg */
 	char msg[20];
   /* Infinite loop */
+	uint8_t cur_line = 0;
   for(;;)
   {
+	  cur_line = 0;
 	  // clear message
-	  OLED_ShowString(10,0, rxMsg);
+	  OLED_ShowString(0,cur_line, rxMsg); cur_line += CHAR_H;
 	  sprintf(msg, "");
 
-	  sprintf(msg, "st:%c,val:%d", rxTask, rxVal);
-	  OLED_ShowString(10, 10, msg);
+	  sprintf(msg, "st:%c,val:%-7d", rxTask, rxVal);
+	  OLED_ShowString(0, cur_line, msg); cur_line += CHAR_H;
 
 	  switch(rxTask) {
 	 	 case 'f':
-	 		 sprintf(msg, "Speed: %d", speed);
-	 		 OLED_ShowString(10, 20, msg);
-	 		 sprintf(msg, "Dir: %d", dir);
-	 		 OLED_ShowString(10, 30, msg);
-	 		 break;
 	 	 case 'b':
-	 		sprintf(msg, "Speed: %d", speed);
-			 OLED_ShowString(10, 20, msg);
-			 sprintf(msg, "Dir: %d", dir);
-			 OLED_ShowString(10, 30, msg);
-	 		 break;
 	 	 case 's':
-	 		 sprintf(msg, "Speed: %d", speed);
-			 OLED_ShowString(10, 20, msg);
-			 sprintf(msg, "Dir: %d", dir);
-			 OLED_ShowString(10, 30, msg);
+	 		sprintf(msg, "Speed:%-10d", speed);
+			 OLED_ShowString(0, cur_line, msg); cur_line += CHAR_H;
+			 sprintf(msg, "Dir:%-12d", dir);
+			 OLED_ShowString(0, cur_line, msg); cur_line += CHAR_H;
 	 		 break;
 	 	 case 'l':
-	 		sprintf(msg, "Turn left");
-	 		OLED_ShowString(10, 20, msg);
+	 		sprintf(msg, "%-16s", "Turn left");
+	 		OLED_ShowString(0, cur_line, msg); cur_line += CHAR_H;
 	 		 break;
 	 	 case 'r':
-	 		sprintf(msg, "Turn right");
-			OLED_ShowString(10, 20, msg);
+	 		sprintf(msg,"%-16s", "Turn right");
+			OLED_ShowString(0, cur_line, msg); cur_line += CHAR_H;
 	 	 default:
 	 		 HAL_GPIO_TogglePin(LED3_GPIO_Port, LED3_Pin);
 	 		 break;
 	 	 }
 
-	sprintf(msg, "bf:%s", aRxBuffer);
-	OLED_ShowString(10, 50, msg);
+	sprintf(msg, "bf:%-16s", aRxBuffer);
+	OLED_ShowString(0, 48, msg);
 	OLED_Refresh_Gram();
 	osDelay(10);
   }
@@ -815,6 +812,24 @@ void movementTestTask(void *argument)
 	*/
   }
   /* USER CODE END movementTestTask */
+}
+
+/* USER CODE BEGIN Header_decodeRxBuffer */
+/**
+* @brief Function implementing the decodeRxBufferT thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_decodeRxBuffer */
+void decodeRxBuffer(void *argument)
+{
+  /* USER CODE BEGIN decodeRxBuffer */
+  /* Infinite loop */
+  for(;;)
+  {
+    osDelay(1);
+  }
+  /* USER CODE END decodeRxBuffer */
 }
 
 /**

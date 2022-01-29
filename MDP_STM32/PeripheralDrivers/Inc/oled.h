@@ -19,6 +19,13 @@
 #define OLED_CMD 0 // Write Command
 #define OLED_DATA 1 // Write Data
 
+#define CHAR_H 12
+#define CHAR_W 8
+#define SCREEN_W 128
+#define SCREEN_H 60
+#define MAX_CHAR_POSX 120
+#define MAX_CHAR_POSY 60
+
 //OLED Control Functions
 void OLED_WR_Byte(uint8_t dat,uint8_t cmd);	
 void OLED_Display_On(void);

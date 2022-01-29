@@ -7,12 +7,12 @@ uint8_t OLED_GRAM[128][8];
 void OLED_Refresh_Gram(void)
 {
 	uint8_t i,n;
-	for(i=0;i<8;i++)
+	for(i=0;i<CHAR_W;i++)
 	{
 		OLED_WR_Byte (0xb0+i,OLED_CMD);
 		OLED_WR_Byte (0x00,OLED_CMD);
 		OLED_WR_Byte (0x10,OLED_CMD);
-		for(n=0;n<128;n++) OLED_WR_Byte(OLED_GRAM[n][i],OLED_DATA);
+		for(n=0;n<SCREEN_W;n++) OLED_WR_Byte(OLED_GRAM[n][i],OLED_DATA);
 	}
 }
 
@@ -21,6 +21,7 @@ void OLED_WR_Byte(uint8_t dat,uint8_t cmd)
 	uint8_t i;
     if(cmd)  OLED_RS_Set(); //CHANGE: OLED_RS_H
     else OLED_RS_Clr(); //CHANGE: OLED_RS_L
+
 	for(i=0;i<8;i++)
 	{
 		OLED_SCLK_Clr();//CHANGE: OLED_SCLK_L
@@ -49,8 +50,8 @@ void OLED_Display_Off(void)
 void OLED_Clear(void)
 {
 	uint8_t i,n;
-	for(i=0;i<8;i++)
-	for(n=0;n<128;n++)
+	for(i=0;i<CHAR_W;i++)
+	for(n=0;n<SCREEN_W;n++)
 	OLED_GRAM[n][i]=0x00;
 	OLED_Refresh_Gram();
 }
@@ -58,7 +59,7 @@ void OLED_Clear(void)
 void OLED_DrawPoint(uint8_t x,uint8_t y,uint8_t t)
 {
 	uint8_t pos,bx,temp=0;
-	if(x>127||y>63)return;
+	if(x>=SCREEN_W||y>=SCREEN_H)return;
 	pos=7-y/8;
 	bx=y%8;
 	temp=1<<(7-bx);
@@ -85,9 +86,10 @@ void OLED_ShowChar(uint8_t x,uint8_t y,char chr,uint8_t size,uint8_t mode)
     {
 		//CHANGE: if(size==16)//temp=oled_asc2_1206[chr][t];
 		//else
-		if (size ==12) temp=oled_asc2_1206[chr][t];
-		else temp=oled_asc2_1608[chr][t];
-    for(t1=0;t1<8;t1++)
+	//	if (size ==12) temp=oled_asc2_1206[chr][t];
+	//	else temp=oled_asc2_1608[chr][t];
+	temp=oled_asc2_1206[chr][t];
+    for(t1=0;t1<CHAR_W;t1++)
 		{
 			if(temp&0x80)OLED_DrawPoint(x,y,mode);
 			else OLED_DrawPoint(x,y,!mode);
@@ -137,16 +139,13 @@ void OLED_ShowNumber(uint8_t x,uint8_t y,uint32_t num,uint8_t len,uint8_t size)
 
 void OLED_ShowString(uint8_t x,uint8_t y,const char *p)
 {
-//CHANGE: #define MAX_CHAR_POSX 122
-#define MAX_CHAR_POSX 120
-#define MAX_CHAR_POSY 58
     while(*p!='\0')
     {
-        if(x>MAX_CHAR_POSX){x=0;y+=16;}
+        if(x>MAX_CHAR_POSX){x=0;y+=CHAR_H;}
         if(y>MAX_CHAR_POSY){y=x=0;OLED_Clear();}
         //CHANGE: OLED_ShowChar(x,y,*p,16,1);
-				OLED_ShowChar(x,y,*p,12,1);
-        x+=8;
+		OLED_ShowChar(x,y,*p,CHAR_H,1);
+        x+=CHAR_W;
         p++;
     }
 }
