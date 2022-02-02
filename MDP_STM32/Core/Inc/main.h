@@ -77,11 +77,16 @@ void Error_Handler(void);
 #define OLED_DC_GPIO_Port GPIOE
 #define LED3_Pin GPIO_PIN_10
 #define LED3_GPIO_Port GPIOE
+#define SW1_Pin GPIO_PIN_8
+#define SW1_GPIO_Port GPIOD
+#define SW1_EXTI_IRQn EXTI9_5_IRQn
 #define PWMA_Pin GPIO_PIN_6
 #define PWMA_GPIO_Port GPIOC
 #define PWMB_Pin GPIO_PIN_7
 #define PWMB_GPIO_Port GPIOC
 /* USER CODE BEGIN Private defines */
+#define WHEEL_LENGTH 20.12
+#define PPR 330
 
 /* USER CODE END Private defines */
 

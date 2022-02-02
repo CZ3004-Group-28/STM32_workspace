@@ -550,3 +550,216 @@ Command-line arguments:  -os win32 -ws win32 -arch x86_64 -data file:/C:/Users/c
 
 !ENTRY com.st.stm32cube.ide.mcu.ide 1 1 2022-01-29 10:22:09.514
 !MESSAGE Started RMI Server, listening on port 41337
+!SESSION 2022-01-29 22:29:44.285 -----------------------------------------------
+eclipse.buildId=Version 1.8.0
+java.version=11.0.11
+java.vendor=AdoptOpenJDK
+BootLoader constants: OS=win32, ARCH=x86_64, WS=win32, NL=en_SG
+Command-line arguments:  -os win32 -ws win32 -arch x86_64
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 4 4 2022-01-29 22:30:04.304
+!MESSAGE CubeMX plugin appears to be active, Log4j initialization might be too late.
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 1 1 2022-01-29 22:30:04.742
+!MESSAGE Log4j initialized with config file C:\Users\cheew\Documents\STM32_workspace\.metadata\.log4j.xml
+
+!ENTRY com.st.stm32cube.ide.mcu.ide 1 1 2022-01-29 22:30:13.099
+!MESSAGE Started RMI Server, listening on port 41337
+
+!ENTRY com.st.stm32cube.ide.mcu.externaltools 4 0 2022-01-29 22:30:13.231
+!MESSAGE HRESULT: -2147024894
+!STACK 0
+com.sun.jna.platform.win32.Win32Exception: The system cannot find the file specified.
+	at com.sun.jna.platform.win32.Advapi32Util.registryGetStringValue(Advapi32Util.java:743)
+	at com.sun.jna.platform.win32.Advapi32Util.registryGetStringValue(Advapi32Util.java:720)
+	at com.st.stm32cube.ide.mcu.externaltools.stlinkserver.win32.MCUWinExternalEnvResolver.getPath(MCUWinExternalEnvResolver.java:33)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsTool.resolvePath(MCUExternalToolsTool.java:125)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsTool.getLocation(MCUExternalToolsTool.java:256)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsRegistry.getToolPath(MCUExternalToolsRegistry.java:227)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsRegistry.getToolPath(MCUExternalToolsRegistry.java:215)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsRegistry.getSTLinkServerLocation(MCUExternalToolsRegistry.java:246)
+	at com.st.stm32cube.ide.mcu.externaltools.MCUExternalToolsPlugin.getSTLinkServerLocation(MCUExternalToolsPlugin.java:127)
+	at com.st.stm32cube.ide.mcu.externaltools.ui.internal.startup.MCUExternalToolsStartup.doPrint(MCUExternalToolsStartup.java:98)
+	at com.st.stm32cube.ide.mcu.externaltools.ui.internal.startup.MCUExternalToolsStartup$1.run(MCUExternalToolsStartup.java:176)
+	at org.eclipse.core.internal.jobs.Worker.run(Worker.java:63)
+!SESSION 2022-01-30 04:30:34.290 -----------------------------------------------
+eclipse.buildId=Version 1.8.0
+java.version=11.0.11
+java.vendor=AdoptOpenJDK
+BootLoader constants: OS=win32, ARCH=x86_64, WS=win32, NL=en_SG
+Command-line arguments:  -os win32 -ws win32 -arch x86_64
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 4 4 2022-01-30 04:31:11.867
+!MESSAGE CubeMX plugin appears to be active, Log4j initialization might be too late.
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 1 1 2022-01-30 04:31:12.005
+!MESSAGE Log4j initialized with config file C:\Users\cheew\Documents\STM32_workspace\.metadata\.log4j.xml
+
+!ENTRY com.st.stm32cube.ide.mcu.ide 1 1 2022-01-30 04:31:20.244
+!MESSAGE Started RMI Server, listening on port 41337
+
+!ENTRY com.st.stm32cube.ide.mcu.externaltools 4 0 2022-01-30 04:31:20.382
+!MESSAGE HRESULT: -2147024894
+!STACK 0
+com.sun.jna.platform.win32.Win32Exception: The system cannot find the file specified.
+	at com.sun.jna.platform.win32.Advapi32Util.registryGetStringValue(Advapi32Util.java:743)
+	at com.sun.jna.platform.win32.Advapi32Util.registryGetStringValue(Advapi32Util.java:720)
+	at com.st.stm32cube.ide.mcu.externaltools.stlinkserver.win32.MCUWinExternalEnvResolver.getPath(MCUWinExternalEnvResolver.java:33)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsTool.resolvePath(MCUExternalToolsTool.java:125)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsTool.getLocation(MCUExternalToolsTool.java:256)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsRegistry.getToolPath(MCUExternalToolsRegistry.java:227)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsRegistry.getToolPath(MCUExternalToolsRegistry.java:215)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsRegistry.getSTLinkServerLocation(MCUExternalToolsRegistry.java:246)
+	at com.st.stm32cube.ide.mcu.externaltools.MCUExternalToolsPlugin.getSTLinkServerLocation(MCUExternalToolsPlugin.java:127)
+	at com.st.stm32cube.ide.mcu.externaltools.ui.internal.startup.MCUExternalToolsStartup.doPrint(MCUExternalToolsStartup.java:98)
+	at com.st.stm32cube.ide.mcu.externaltools.ui.internal.startup.MCUExternalToolsStartup$1.run(MCUExternalToolsStartup.java:176)
+	at org.eclipse.core.internal.jobs.Worker.run(Worker.java:63)
+!SESSION 2022-01-30 18:48:59.312 -----------------------------------------------
+eclipse.buildId=Version 1.8.0
+java.version=11.0.11
+java.vendor=AdoptOpenJDK
+BootLoader constants: OS=win32, ARCH=x86_64, WS=win32, NL=en_SG
+Command-line arguments:  -os win32 -ws win32 -arch x86_64
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 4 4 2022-01-30 19:07:16.377
+!MESSAGE CubeMX plugin appears to be active, Log4j initialization might be too late.
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 1 1 2022-01-30 19:07:16.858
+!MESSAGE Log4j initialized with config file C:\Users\cheew\Documents\STM32_workspace\.metadata\.log4j.xml
+
+!ENTRY com.st.stm32cube.ide.mcu.ide 1 1 2022-01-30 19:07:24.346
+!MESSAGE Started RMI Server, listening on port 41337
+
+!ENTRY com.st.stm32cube.ide.mcu.externaltools 4 0 2022-01-30 19:07:24.482
+!MESSAGE HRESULT: -2147024894
+!STACK 0
+com.sun.jna.platform.win32.Win32Exception: The system cannot find the file specified.
+	at com.sun.jna.platform.win32.Advapi32Util.registryGetStringValue(Advapi32Util.java:743)
+	at com.sun.jna.platform.win32.Advapi32Util.registryGetStringValue(Advapi32Util.java:720)
+	at com.st.stm32cube.ide.mcu.externaltools.stlinkserver.win32.MCUWinExternalEnvResolver.getPath(MCUWinExternalEnvResolver.java:33)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsTool.resolvePath(MCUExternalToolsTool.java:125)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsTool.getLocation(MCUExternalToolsTool.java:256)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsRegistry.getToolPath(MCUExternalToolsRegistry.java:227)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsRegistry.getToolPath(MCUExternalToolsRegistry.java:215)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsRegistry.getSTLinkServerLocation(MCUExternalToolsRegistry.java:246)
+	at com.st.stm32cube.ide.mcu.externaltools.MCUExternalToolsPlugin.getSTLinkServerLocation(MCUExternalToolsPlugin.java:127)
+	at com.st.stm32cube.ide.mcu.externaltools.ui.internal.startup.MCUExternalToolsStartup.doPrint(MCUExternalToolsStartup.java:98)
+	at com.st.stm32cube.ide.mcu.externaltools.ui.internal.startup.MCUExternalToolsStartup$1.run(MCUExternalToolsStartup.java:176)
+	at org.eclipse.core.internal.jobs.Worker.run(Worker.java:63)
+!SESSION 2022-01-31 09:29:51.558 -----------------------------------------------
+eclipse.buildId=Version 1.8.0
+java.version=11.0.11
+java.vendor=AdoptOpenJDK
+BootLoader constants: OS=win32, ARCH=x86_64, WS=win32, NL=en_SG
+Command-line arguments:  -os win32 -ws win32 -arch x86_64
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 4 4 2022-01-31 09:30:03.572
+!MESSAGE CubeMX plugin appears to be active, Log4j initialization might be too late.
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 1 1 2022-01-31 09:30:03.647
+!MESSAGE Log4j initialized with config file C:\Users\cheew\Documents\STM32_workspace\.metadata\.log4j.xml
+
+!ENTRY com.st.stm32cube.ide.mcu.ide 1 1 2022-01-31 09:30:12.443
+!MESSAGE Started RMI Server, listening on port 41337
+
+!ENTRY com.st.stm32cube.ide.mcu.externaltools 4 0 2022-01-31 09:30:12.612
+!MESSAGE HRESULT: -2147024894
+!STACK 0
+com.sun.jna.platform.win32.Win32Exception: The system cannot find the file specified.
+	at com.sun.jna.platform.win32.Advapi32Util.registryGetStringValue(Advapi32Util.java:743)
+	at com.sun.jna.platform.win32.Advapi32Util.registryGetStringValue(Advapi32Util.java:720)
+	at com.st.stm32cube.ide.mcu.externaltools.stlinkserver.win32.MCUWinExternalEnvResolver.getPath(MCUWinExternalEnvResolver.java:33)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsTool.resolvePath(MCUExternalToolsTool.java:125)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsTool.getLocation(MCUExternalToolsTool.java:256)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsRegistry.getToolPath(MCUExternalToolsRegistry.java:227)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsRegistry.getToolPath(MCUExternalToolsRegistry.java:215)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsRegistry.getSTLinkServerLocation(MCUExternalToolsRegistry.java:246)
+	at com.st.stm32cube.ide.mcu.externaltools.MCUExternalToolsPlugin.getSTLinkServerLocation(MCUExternalToolsPlugin.java:127)
+	at com.st.stm32cube.ide.mcu.externaltools.ui.internal.startup.MCUExternalToolsStartup.doPrint(MCUExternalToolsStartup.java:98)
+	at com.st.stm32cube.ide.mcu.externaltools.ui.internal.startup.MCUExternalToolsStartup$1.run(MCUExternalToolsStartup.java:176)
+	at org.eclipse.core.internal.jobs.Worker.run(Worker.java:63)
+!SESSION 2022-02-01 13:13:10.922 -----------------------------------------------
+eclipse.buildId=Version 1.8.0
+java.version=11.0.11
+java.vendor=AdoptOpenJDK
+BootLoader constants: OS=win32, ARCH=x86_64, WS=win32, NL=en_SG
+Command-line arguments:  -os win32 -ws win32 -arch x86_64
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 4 4 2022-02-01 13:13:23.096
+!MESSAGE CubeMX plugin appears to be active, Log4j initialization might be too late.
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 1 1 2022-02-01 13:13:23.721
+!MESSAGE Log4j initialized with config file C:\Users\cheew\Documents\STM32_workspace\.metadata\.log4j.xml
+
+!ENTRY com.st.stm32cube.ide.mcu.ide 1 1 2022-02-01 13:13:31.259
+!MESSAGE Started RMI Server, listening on port 41337
+
+!ENTRY com.st.stm32cube.ide.mcu.externaltools 4 0 2022-02-01 13:13:31.400
+!MESSAGE HRESULT: -2147024894
+!STACK 0
+com.sun.jna.platform.win32.Win32Exception: The system cannot find the file specified.
+	at com.sun.jna.platform.win32.Advapi32Util.registryGetStringValue(Advapi32Util.java:743)
+	at com.sun.jna.platform.win32.Advapi32Util.registryGetStringValue(Advapi32Util.java:720)
+	at com.st.stm32cube.ide.mcu.externaltools.stlinkserver.win32.MCUWinExternalEnvResolver.getPath(MCUWinExternalEnvResolver.java:33)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsTool.resolvePath(MCUExternalToolsTool.java:125)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsTool.getLocation(MCUExternalToolsTool.java:256)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsRegistry.getToolPath(MCUExternalToolsRegistry.java:227)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsRegistry.getToolPath(MCUExternalToolsRegistry.java:215)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsRegistry.getSTLinkServerLocation(MCUExternalToolsRegistry.java:246)
+	at com.st.stm32cube.ide.mcu.externaltools.MCUExternalToolsPlugin.getSTLinkServerLocation(MCUExternalToolsPlugin.java:127)
+	at com.st.stm32cube.ide.mcu.externaltools.ui.internal.startup.MCUExternalToolsStartup.doPrint(MCUExternalToolsStartup.java:98)
+	at com.st.stm32cube.ide.mcu.externaltools.ui.internal.startup.MCUExternalToolsStartup$1.run(MCUExternalToolsStartup.java:176)
+	at org.eclipse.core.internal.jobs.Worker.run(Worker.java:63)
+
+!ENTRY org.eclipse.cdt.ui 4 0 2022-02-01 13:29:12.662
+!MESSAGE Error in CDT UI during reconcile
+!STACK 1
+C Model Exception: C Model Status [Element main.c does not exist.]
+	at org.eclipse.cdt.internal.core.model.CElement.newNotPresentException(CElement.java:485)
+	at org.eclipse.cdt.internal.core.model.TranslationUnit.makeConsistent(TranslationUnit.java:583)
+	at org.eclipse.cdt.internal.core.model.ReconcileWorkingCopyOperation.executeOperation(ReconcileWorkingCopyOperation.java:65)
+	at org.eclipse.cdt.internal.core.model.CModelOperation.execute(CModelOperation.java:346)
+	at org.eclipse.cdt.internal.core.model.CModelOperation.run(CModelOperation.java:613)
+	at org.eclipse.cdt.internal.core.model.CModelOperation.runOperation(CModelOperation.java:641)
+	at org.eclipse.cdt.internal.core.model.WorkingCopy.reconcile(WorkingCopy.java:365)
+	at org.eclipse.cdt.internal.ui.text.CReconcilingStrategy.reconcile(CReconcilingStrategy.java:79)
+	at org.eclipse.cdt.internal.ui.text.CReconcilingStrategy.reconcile(CReconcilingStrategy.java:64)
+	at org.eclipse.cdt.internal.ui.text.CompositeReconcilingStrategy.reconcile(CompositeReconcilingStrategy.java:89)
+	at org.eclipse.cdt.internal.ui.text.CCompositeReconcilingStrategy.reconcile(CCompositeReconcilingStrategy.java:90)
+	at org.eclipse.jface.text.reconciler.MonoReconciler.process(MonoReconciler.java:76)
+	at org.eclipse.cdt.internal.ui.text.CReconciler.process(CReconciler.java:346)
+	at org.eclipse.jface.text.reconciler.AbstractReconciler$BackgroundThread.run(AbstractReconciler.java:210)
+!SUBENTRY 1 org.eclipse.cdt.core 4 969 2022-02-01 13:29:12.663
+!MESSAGE Element main.c does not exist.
+!SESSION 2022-02-02 10:09:04.644 -----------------------------------------------
+eclipse.buildId=Version 1.8.0
+java.version=11.0.11
+java.vendor=AdoptOpenJDK
+BootLoader constants: OS=win32, ARCH=x86_64, WS=win32, NL=en_SG
+Command-line arguments:  -os win32 -ws win32 -arch x86_64
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 4 4 2022-02-02 10:09:17.598
+!MESSAGE CubeMX plugin appears to be active, Log4j initialization might be too late.
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 1 1 2022-02-02 10:09:18.086
+!MESSAGE Log4j initialized with config file C:\Users\cheew\Documents\STM32_workspace\.metadata\.log4j.xml
+
+!ENTRY com.st.stm32cube.ide.mcu.ide 1 1 2022-02-02 10:09:26.723
+!MESSAGE Started RMI Server, listening on port 41337
+
+!ENTRY com.st.stm32cube.ide.mcu.externaltools 4 0 2022-02-02 10:09:26.857
+!MESSAGE HRESULT: -2147024894
+!STACK 0
+com.sun.jna.platform.win32.Win32Exception: The system cannot find the file specified.
+	at com.sun.jna.platform.win32.Advapi32Util.registryGetStringValue(Advapi32Util.java:743)
+	at com.sun.jna.platform.win32.Advapi32Util.registryGetStringValue(Advapi32Util.java:720)
+	at com.st.stm32cube.ide.mcu.externaltools.stlinkserver.win32.MCUWinExternalEnvResolver.getPath(MCUWinExternalEnvResolver.java:33)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsTool.resolvePath(MCUExternalToolsTool.java:125)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsTool.getLocation(MCUExternalToolsTool.java:256)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsRegistry.getToolPath(MCUExternalToolsRegistry.java:227)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsRegistry.getToolPath(MCUExternalToolsRegistry.java:215)
+	at com.st.stm32cube.ide.mcu.externaltools.internal.registry.MCUExternalToolsRegistry.getSTLinkServerLocation(MCUExternalToolsRegistry.java:246)
+	at com.st.stm32cube.ide.mcu.externaltools.MCUExternalToolsPlugin.getSTLinkServerLocation(MCUExternalToolsPlugin.java:127)
+	at com.st.stm32cube.ide.mcu.externaltools.ui.internal.startup.MCUExternalToolsStartup.doPrint(MCUExternalToolsStartup.java:98)
+	at com.st.stm32cube.ide.mcu.externaltools.ui.internal.startup.MCUExternalToolsStartup$1.run(MCUExternalToolsStartup.java:176)
+	at org.eclipse.core.internal.jobs.Worker.run(Worker.java:63)

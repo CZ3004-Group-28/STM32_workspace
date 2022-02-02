@@ -23,6 +23,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "oled.h"
+#include "PID.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -42,6 +43,7 @@
 /* Private variables ---------------------------------------------------------*/
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
+TIM_HandleTypeDef htim3;
 TIM_HandleTypeDef htim8;
 
 UART_HandleTypeDef huart3;
@@ -74,10 +76,10 @@ const osThreadAttr_t movementTest_attributes = {
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
-/* Definitions for decodeRxBufferT */
-osThreadId_t decodeRxBufferTHandle;
-const osThreadAttr_t decodeRxBufferT_attributes = {
-  .name = "decodeRxBufferT",
+/* Definitions for distanceTest */
+osThreadId_t distanceTestHandle;
+const osThreadAttr_t distanceTest_attributes = {
+  .name = "distanceTest",
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
@@ -92,16 +94,17 @@ static void MX_TIM8_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_USART3_UART_Init(void);
 static void MX_TIM1_Init(void);
+static void MX_TIM3_Init(void);
 void StartDefaultTask(void *argument);
 void displayMsg(void *argument);
 void runEncoder(void *argument);
 void movementTestTask(void *argument);
-void decodeRxBuffer(void *argument);
+void moveDistTest(void *argument);
 
 /* USER CODE BEGIN PFP */
 void motorTurn(uint8_t amt);
-void motorMoveForward(uint16_t step);
-void motorMoveBackward(uint16_t step);
+void motorMoveForward();
+void motorMoveBackward();
 void motorStop();
 /* USER CODE END PFP */
 
@@ -115,13 +118,24 @@ uint8_t aRxBuffer[10];
 uint8_t aTxBuffer[10];
 
 
-uint8_t rxTask = '_';
+uint8_t rxTask = 'x';
 uint16_t rxVal = 0;
 uint8_t rxMsg[20];
 
-uint16_t speed = 0;
+uint16_t speed_L = 0;
+uint16_t speed_R = 0;
 uint8_t dir = 0;
+uint8_t turn = 75;
+uint16_t pwmDuty_L = 0;
+uint16_t pwmDuty_R = 0;
 uint16_t pwmVal = 0;
+
+uint8_t manualMode = 0;
+
+// PID
+PID_typedef left_pid, right_pid;
+uint16_t targetSpeed = 0; // eg. 10 = 10cm/s
+uint16_t PID_sample_rate = 250;
 /* USER CODE END 0 */
 
 /**
@@ -156,8 +170,12 @@ int main(void)
   MX_TIM2_Init();
   MX_USART3_UART_Init();
   MX_TIM1_Init();
+  MX_TIM3_Init();
   /* USER CODE BEGIN 2 */
   OLED_Init();
+
+  PID_Init(&left_pid, 0.4, 0.02, 0.05);
+  PID_Init(&right_pid, 0.4, 0.02, 0.05);
 
   HAL_UART_Receive_IT(&huart3, (uint8_t *) aRxBuffer,BUFFER_SIZE);
   /* USER CODE END 2 */
@@ -183,19 +201,19 @@ int main(void)
 
   /* Create the thread(s) */
   /* creation of defaultTask */
-  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
+//  defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
   /* creation of displayOLED */
-  displayOLEDHandle = osThreadNew(displayMsg, NULL, &displayOLED_attributes);
+//  displayOLEDHandle = osThreadNew(displayMsg, NULL, &displayOLED_attributes);
 
   /* creation of encoderTask */
-  encoderTaskHandle = osThreadNew(runEncoder, NULL, &encoderTask_attributes);
+//  encoderTaskHandle = osThreadNew(runEncoder, NULL, &encoderTask_attributes);
 
   /* creation of movementTest */
   movementTestHandle = osThreadNew(movementTestTask, NULL, &movementTest_attributes);
 
-  /* creation of decodeRxBufferT */
-  decodeRxBufferTHandle = osThreadNew(decodeRxBuffer, NULL, &decodeRxBufferT_attributes);
+  /* creation of distanceTest */
+//  distanceTestHandle = osThreadNew(moveDistTest, NULL, &distanceTest_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -354,7 +372,7 @@ static void MX_TIM2_Init(void)
   htim2.Instance = TIM2;
   htim2.Init.Prescaler = 0;
   htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim2.Init.Period = 4294967295;
+  htim2.Init.Period = 65535;
   htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
   htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
   sConfig.EncoderMode = TIM_ENCODERMODE_TI12;
@@ -365,7 +383,7 @@ static void MX_TIM2_Init(void)
   sConfig.IC2Polarity = TIM_ICPOLARITY_RISING;
   sConfig.IC2Selection = TIM_ICSELECTION_DIRECTTI;
   sConfig.IC2Prescaler = TIM_ICPSC_DIV1;
-  sConfig.IC2Filter = 0;
+  sConfig.IC2Filter = 10;
   if (HAL_TIM_Encoder_Init(&htim2, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -379,6 +397,55 @@ static void MX_TIM2_Init(void)
   /* USER CODE BEGIN TIM2_Init 2 */
 
   /* USER CODE END TIM2_Init 2 */
+
+}
+
+/**
+  * @brief TIM3 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM3_Init(void)
+{
+
+  /* USER CODE BEGIN TIM3_Init 0 */
+
+  /* USER CODE END TIM3_Init 0 */
+
+  TIM_Encoder_InitTypeDef sConfig = {0};
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM3_Init 1 */
+
+  /* USER CODE END TIM3_Init 1 */
+  htim3.Instance = TIM3;
+  htim3.Init.Prescaler = 0;
+  htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim3.Init.Period = 65535;
+  htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+  htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_DISABLE;
+  sConfig.EncoderMode = TIM_ENCODERMODE_TI12;
+  sConfig.IC1Polarity = TIM_ICPOLARITY_RISING;
+  sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC1Filter = 10;
+  sConfig.IC2Polarity = TIM_ICPOLARITY_RISING;
+  sConfig.IC2Selection = TIM_ICSELECTION_DIRECTTI;
+  sConfig.IC2Prescaler = TIM_ICPSC_DIV1;
+  sConfig.IC2Filter = 10;
+  if (HAL_TIM_Encoder_Init(&htim3, &sConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_RESET;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim3, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM3_Init 2 */
+
+  /* USER CODE END TIM3_Init 2 */
 
 }
 
@@ -505,6 +572,7 @@ static void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOD_CLK_ENABLE();
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
 
@@ -531,6 +599,16 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
 
+  /*Configure GPIO pin : SW1_Pin */
+  GPIO_InitStruct.Pin = SW1_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(SW1_GPIO_Port, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI9_5_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI9_5_IRQn);
+
 }
 
 /* USER CODE BEGIN 4 */
@@ -544,12 +622,19 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef * huart) {
 	    switch(aRxBuffer[3]) {
 	    case 'r': // rpi connected
 			sprintf(rxMsg, "%-16s", "rpi connected\0");
-			uint8_t * ch = "ST\r\n";
-			HAL_UART_Transmit(&huart3, (uint8_t *) &ch,4,0xFFFF);
+			uint8_t * ch = "STM32 connected to rpi\r\n";
+			HAL_UART_Transmit(&huart3, (uint8_t *) ch,24,0xFFFF);
 			break;
 	    case 'p': // debug bluetooth gamepad connected
 			sprintf(rxMsg, "%-16s","gpad connected\0");
 	    	break;
+	    case 'e':
+	    	manualMode = 1;
+	    	sprintf(rxMsg, "%-16s","manual mode\0");
+	    	break;
+	    case 'f':
+	    	manualMode = 0;
+	    	sprintf(rxMsg, "%-16s","exit manual\0");
 	    }
 	} else {
     	sprintf(rxMsg, "%-16s", "state");
@@ -564,31 +649,53 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef * huart) {
 	//HAL_UART_Transmit(&huart3, (uint8_t *) aTxBuffer, BUFFER_SIZE, 0xFFFF);
 }
 
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+	if (GPIO_Pin == SW1_Pin) {
+		HAL_GPIO_TogglePin(LED3_GPIO_Port, LED3_Pin);
+		sprintf(aTxBuffer, "proC\n");
+		HAL_UART_Transmit(&huart3, (uint8_t *) aTxBuffer, 5, 0xFFFF);
+	}
+
+}
+
 void motorTurn(uint8_t amt) {
-	// prescaler: 160, period: 1000
+	// 16Mhz, prescaler: 160, period: 1000
 	// extreme left: 95, center: 145, extreme right: 245
 	//htim1.Instance->CCR4 = (amt > 245) ? 245 : ((amt < 95) ? 95 : amt);
 
-	// prescaler: 320, period: 1000
+	// 16Mhz, prescaler: 320, period: 1000
 	//extreme left: 50, center: 75, extreme right:115
-	htim1.Instance->CCR4 = (amt > 115) ? 115 : ((amt < 50) ? 50 : amt);
+	turn = (amt > 115) ? 115 : ((amt < 50) ? 50 : amt);
+	htim1.Instance->CCR4 = turn;
 }
 
-void motorMoveForward(uint16_t step) {
-	pwmVal = 1500;
+void motorMoveForwardByDuty(uint8_t duty) {
+	uint16_t targetDuty = 7199 * duty / 100;
+	HAL_GPIO_WritePin(GPIOA, AIN2_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(GPIOA, AIN1_Pin, GPIO_PIN_SET);
+	// clockwise (forward)
+	HAL_GPIO_WritePin(GPIOA, BIN2_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(GPIOA, BIN1_Pin, GPIO_PIN_SET);
+
+	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_1, targetDuty);
+	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_2, targetDuty);
+}
+
+void motorMoveForward() {
+	//pwmVal = 7199 * duty / 100;
 	// anticlockwise (forward)
 	HAL_GPIO_WritePin(GPIOA, AIN2_Pin, GPIO_PIN_RESET);
 	HAL_GPIO_WritePin(GPIOA, AIN1_Pin, GPIO_PIN_SET);
 	// clockwise (forward)
 	HAL_GPIO_WritePin(GPIOA, BIN2_Pin, GPIO_PIN_RESET);
 	HAL_GPIO_WritePin(GPIOA, BIN1_Pin, GPIO_PIN_SET);
-	pwmVal--;
-	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_1, pwmVal);
-	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_2, pwmVal);
+
+	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_1, pwmDuty_L);
+	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_2, pwmDuty_R);
 }
 
-void motorMoveBackward(uint16_t step) {
-	pwmVal = 1500;
+void motorMoveBackward() {
+	//pwmVal = 7199 * duty / 100;
 	 // clockwise (backward)
 	HAL_GPIO_WritePin(GPIOA, AIN2_Pin, GPIO_PIN_SET);
 	HAL_GPIO_WritePin(GPIOA, AIN1_Pin, GPIO_PIN_RESET);
@@ -597,15 +704,16 @@ void motorMoveBackward(uint16_t step) {
 	HAL_GPIO_WritePin(GPIOA, BIN2_Pin, GPIO_PIN_SET);
 	HAL_GPIO_WritePin(GPIOA, BIN1_Pin, GPIO_PIN_RESET);
 
-	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_1, pwmVal);
-	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_2, pwmVal);
+	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_1, pwmDuty_L);
+	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_2, pwmDuty_R);
 }
 
 void motorStop() {
+	left_pid.EkSum = 0;
+	right_pid.EkSum = 0;
 	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_1, 0);
 	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_2, 0);
 }
-
 
 /* USER CODE END 4 */
 
@@ -622,39 +730,44 @@ void StartDefaultTask(void *argument)
 	// servo pwm
 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
 
-	// DC motor pwm
+//	 DC motor pwm
 	HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_1);
 	HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_2);
 
-	// encoder pwm
-	//HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
-
-	char ch;
   /* Infinite loop */
   for(;;)
   {
-	 //test UART Rx
-	//HAL_UART_Transmit(&huart3, (uint8_t *) &ch,1,0xFFFF);
-	//if (ch < 'Z') ch++;
-	//else ch = 'A';
-
 	 switch(rxTask) {
+	 case 'c':
+		 PID_sample_rate = rxVal*10;
+		 break;
 	 case '_':
 		 break;
 	 case 'f':
-		 motorMoveForward(rxVal);
+		 targetSpeed = rxVal;
+		 pwmDuty_L = 2000;
+		 pwmDuty_R = 2000;
+		 motorMoveForward();
+		 break;
+	 case 'F':
+		 motorMoveForwardByDuty(rxVal);
 		 break;
 	 case 'b':
-		 motorMoveBackward(rxVal);
+		 targetSpeed = rxVal;
+		 pwmDuty_L = 2000;
+		 pwmDuty_R = 2000;
+		 motorMoveBackward();
 		 break;
 	 case 's':
+		 targetSpeed = 0;
+		 pwmDuty_L = 0;
+		 pwmDuty_R = 0;
 		 motorStop();
 		 break;
 	 case 't':
 		 motorTurn(rxVal);
 		 break;
 	 default:
-		 HAL_GPIO_TogglePin(LED3_GPIO_Port, LED3_Pin);
 		 break;
 	 }
 
@@ -683,7 +796,7 @@ void displayMsg(void *argument)
 	  // clear message
 	  OLED_ShowString(0,cur_line, rxMsg); cur_line += CHAR_H;
 	  sprintf(msg, "");
-
+//
 	  sprintf(msg, "st:%c,val:%-7d", rxTask, rxVal);
 	  OLED_ShowString(0, cur_line, msg); cur_line += CHAR_H;
 
@@ -691,26 +804,21 @@ void displayMsg(void *argument)
 	 	 case 'f':
 	 	 case 'b':
 	 	 case 's':
-	 		sprintf(msg, "Speed:%-10d", speed);
-			 OLED_ShowString(0, cur_line, msg); cur_line += CHAR_H;
-			 sprintf(msg, "Dir:%-12d", dir);
+	 		 sprintf(msg, "%-6d|%-6d|%-2d", speed_L, speed_R, dir);
 			 OLED_ShowString(0, cur_line, msg); cur_line += CHAR_H;
 	 		 break;
-	 	 case 'l':
-	 		sprintf(msg, "%-16s", "Turn left");
+	 	 case 't':
+	 		sprintf(msg, "turn:%-11d", turn);
 	 		OLED_ShowString(0, cur_line, msg); cur_line += CHAR_H;
 	 		 break;
-	 	 case 'r':
-	 		sprintf(msg,"%-16s", "Turn right");
-			OLED_ShowString(0, cur_line, msg); cur_line += CHAR_H;
 	 	 default:
-	 		 HAL_GPIO_TogglePin(LED3_GPIO_Port, LED3_Pin);
+	 		// HAL_GPIO_TogglePin(LED3_GPIO_Port, LED3_Pin);
 	 		 break;
 	 	 }
 
 	sprintf(msg, "bf:%-16s", aRxBuffer);
 	OLED_ShowString(0, 48, msg);
-	OLED_Refresh_Gram();
+//	OLED_Refresh_Gram();
 	osDelay(10);
   }
   /* USER CODE END displayMsg */
@@ -726,28 +834,42 @@ void displayMsg(void *argument)
 void runEncoder(void *argument)
 {
   /* USER CODE BEGIN runEncoder */
-	HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
-	int cnt1, cnt2;
+	int cnt1_L, cnt2_L, cnt1_R, cnt2_R;
 	uint32_t tick;
 
-	cnt1 = __HAL_TIM_GET_COUNTER(&htim2);
-	tick = HAL_GetTick(); // systick tick
+	HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
+	HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);
+
+	cnt1_L = __HAL_TIM_GET_COUNTER(&htim2);
+	cnt1_R = __HAL_TIM_GET_COUNTER(&htim3);
+	tick = HAL_GetTick();
   /* Infinite loop */
   for(;;)
   {
-	  if (HAL_GetTick() - tick > 1000L) {
-		  cnt2 = __HAL_TIM_GET_COUNTER(&htim2);
+	  if (manualMode == 1) continue;
+	  if (HAL_GetTick() - tick > 1000L) { // check wheels' speed every 1 second
+		  cnt2_L = __HAL_TIM_GET_COUNTER(&htim2);
+		  cnt2_R = __HAL_TIM_GET_COUNTER(&htim3);
+		 // uint16_t lastSpeed_L = speed_L;
 		  if (__HAL_TIM_IS_TIM_COUNTING_DOWN(&htim2)) {
-			  speed = (cnt2 < cnt1) ? cnt1 - cnt2 : (65535 - cnt2) + cnt1;
-		  }
-		  else {
-			  speed = (cnt2 > cnt1) ? cnt2 - cnt1 : (65535 - cnt1) + cnt2;
+			  speed_L = (cnt2_L <= cnt1_L) ? cnt1_L - cnt2_L : (65535 - cnt2_L) + cnt1_L;
+		  } else {
+			  speed_L = (cnt2_L >= cnt1_L) ? cnt2_L - cnt1_L : (65535 - cnt1_L) + cnt2_L;
 		  }
 
+		  if (__HAL_TIM_IS_TIM_COUNTING_DOWN(&htim3)) {
+			  speed_R = (cnt2_R <= cnt1_R) ? cnt1_R - cnt2_R : (65535 - cnt2_R) + cnt1_R;
+		  } else {
+			  speed_R = (cnt2_R >= cnt1_R) ? cnt2_R - cnt1_R : (65535 - cnt1_R) + cnt2_R;
+		  }
+
+		  speed_L = speed_L == 65535 ? 0 : speed_L;
+		  speed_R = speed_R == 65535 ? 0 : speed_R;
 		  dir = __HAL_TIM_IS_TIM_COUNTING_DOWN(&htim2);
-
-		  cnt1 = __HAL_TIM_GET_COUNTER(&htim2);
+		  cnt1_L = __HAL_TIM_GET_COUNTER(&htim2);
+		  cnt1_R = __HAL_TIM_GET_COUNTER(&htim3);
 		  tick = HAL_GetTick();
+
 	  }
 
    // osDelay(10); //delay not suitable here, we try to get accurate encoder reading
@@ -765,71 +887,164 @@ void runEncoder(void *argument)
 void movementTestTask(void *argument)
 {
   /* USER CODE BEGIN movementTestTask */
+	char msg[20];
+
+	int cnt1_L, cnt2_L, cnt1_R, cnt2_R;
+	uint32_t tick;
+
+	uint16_t initDuty = 1310;
+	uint16_t newDuty_L = initDuty, newDuty_R = initDuty;
+
+	pwmDuty_L = 7199 * newDuty_L / 10000;
+	pwmDuty_R = 7199 * newDuty_R / 10000;
+	// set target speed we want to reach to be 40cm/s
+	//targetSpeed = 60;
+	int targetTick = 1571;
+
+
+	HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_1);
+	HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_2);
+	HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
+	HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);
+
+	cnt1_L = __HAL_TIM_GET_COUNTER(&htim2);
+	cnt1_R = __HAL_TIM_GET_COUNTER(&htim3);
+	tick = HAL_GetTick();
+
+	//int targetTick = (double)targetSpeed/WHEEL_LENGTH * ENCODER_TICK_PER_REV * PID_Interval / 1000;
+	// 100cm/s = 100/21*330 = 1571
+
   /* Infinite loop */
   for(;;)
   {
-	  /*
-	sprintf(rxMsg, "forward\0");
-	motorTurn(145);
-	motorMoveForward();
-    osDelay(2000);
+	  motorMoveForward();
+	  if (HAL_GetTick() - tick >= 1000L) {
+		  cnt2_L = __HAL_TIM_GET_COUNTER(&htim2);
+		  cnt2_R = __HAL_TIM_GET_COUNTER(&htim3);
+		  if (__HAL_TIM_IS_TIM_COUNTING_DOWN(&htim2)) {
+			  speed_L = (cnt2_L <= cnt1_L) ? cnt1_L - cnt2_L : (65535 - cnt2_L) + cnt1_L;
+		  } else {
+			  speed_L = (cnt2_L >= cnt1_L) ? cnt2_L - cnt1_L : (65535 - cnt1_L) + cnt2_L;
+		  }
 
-    sprintf(rxMsg, "backward\0");
-    motorTurn(145);
-    motorMoveBackward();
-	osDelay(2000);
+		  if (__HAL_TIM_IS_TIM_COUNTING_DOWN(&htim3)) {
+			  speed_R = (cnt2_R <= cnt1_R) ? cnt1_R - cnt2_R : (65535 - cnt2_R) + cnt1_R;
+		  } else {
+			  speed_R = (cnt2_R >= cnt1_R) ? cnt2_R - cnt1_R : (65535 - cnt1_R) + cnt2_R;
+		  }
 
-	sprintf(rxMsg, "left\0");
-	motorTurn(95);
-	motorMoveForward();
-	osDelay(2000);
+		  speed_L = speed_L == 65535 ? 0 : speed_L;
+		  speed_R = speed_R == 65535 ? 0 : speed_R;
 
-	sprintf(rxMsg, "center\0");
-	motorTurn(145);
-	motorMoveForward();
-	osDelay(2000);
-
-	sprintf(rxMsg, "right\0");
-	motorTurn(245);
-	motorMoveForward();
-	osDelay(2000);
-
-	sprintf(rxMsg, "center\0");
-	motorTurn(145);
-	motorStop();
-	osDelay(2000);
+		  cnt1_L = __HAL_TIM_GET_COUNTER(&htim2);
+		  cnt1_R = __HAL_TIM_GET_COUNTER(&htim3);
+		  tick = HAL_GetTick();
 
 
-	sprintf(rxMsg, "right\0");
-	motorTurn(245);
-	motorMoveForward();
-	osDelay(5000);
+		  //PID
+		  newDuty_L += PID_Speed(targetTick, speed_L, &left_pid);
+		  newDuty_R += PID_Speed(targetTick, speed_R, &right_pid);
+		  pwmDuty_L = 7199 * newDuty_L / 10000;
+		  pwmDuty_R = 7199 * newDuty_R / 10000;
 
-	sprintf(rxMsg, "stop\0");
-	motorTurn(145);
-	motorStop();
-	osDelay(1000);
-	*/
+		  sprintf(msg,"targetTick:%-5d", targetTick);
+		  OLED_ShowString(0, 0, msg);
+		  sprintf(msg,"cT:%-6d|%-6d", speed_L, speed_R);
+//		  OLED_ShowString(0, 12, msg);
+//		  sprintf(msg, "bf:%-16s", aRxBuffer);
+		  OLED_ShowString(0, 24, msg);
+		  sprintf(msg, "cD:%-6d|%-6d", newDuty_L, newDuty_R);
+		  OLED_ShowString(0, 36, msg);
+//		  sprintf(msg, "cP:%-6d|%-6d", pwmDuty_L, pwmDuty_R);
+//		  OLED_ShowString(0, 48, msg);
+	  }
   }
   /* USER CODE END movementTestTask */
 }
 
-/* USER CODE BEGIN Header_decodeRxBuffer */
+/* USER CODE BEGIN Header_moveDistTest */
 /**
-* @brief Function implementing the decodeRxBufferT thread.
+* @brief Function implementing the distanceTest thread.
 * @param argument: Not used
 * @retval None
 */
-/* USER CODE END Header_decodeRxBuffer */
-void decodeRxBuffer(void *argument)
+/* USER CODE END Header_moveDistTest */
+void moveDistTest(void *argument)
 {
-  /* USER CODE BEGIN decodeRxBuffer */
+  /* USER CODE BEGIN moveDistTest */
+  /* Infinite loop */
+	int cnt1_L, cnt2_L, cnt1_R, cnt2_R;
+	char msg[20];
+	uint16_t initDuty = 2000;
+	uint16_t newDuty_L = initDuty, newDuty_R = initDuty;
+
+	pwmDuty_L = 7199 * newDuty_L / 10000;
+	pwmDuty_R = 7199 * newDuty_R / 10000;
+
+	// set target distance we want to reach to be 100cm
+	double targetDist = 100;
+	// PPR * 4 as the encoder is quadrature
+	int targetTick = targetDist / WHEEL_LENGTH * PPR * 4; //we want the car to stop after moving for 100cm
+	int diff_L = 0;
+	long sampling = 10L; // sample every 20ms
+	int travelledTick = 0;
+
+	// one tick is about 1/(330*4)*20.12 = 0.015 second
+
+	int tick = HAL_GetTick();
+	HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_1);
+	HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_2);
+	HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
+	HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);
+
+	cnt1_L = __HAL_TIM_GET_COUNTER(&htim2);
+	cnt1_R = __HAL_TIM_GET_COUNTER(&htim3);
+	motorMoveForward();
   /* Infinite loop */
   for(;;)
   {
-    osDelay(1);
+	  // we used left wheel to check move distance
+	  if (HAL_GetTick() - tick >= sampling) {
+		  cnt2_L = __HAL_TIM_GET_COUNTER(&htim2);
+		  if (__HAL_TIM_IS_TIM_COUNTING_DOWN(&htim2)) {
+			  diff_L = (cnt2_L <= cnt1_L) ? cnt1_L - cnt2_L : (65535 - cnt2_L) + cnt1_L;
+		  } else {
+			  diff_L = (cnt2_L >= cnt1_L) ? cnt2_L - cnt1_L : (65535 - cnt1_L) + cnt2_L;
+		  }
+		  tick = HAL_GetTick();
+		  cnt1_L = __HAL_TIM_GET_COUNTER(&htim2);
+		  //empirical test, encoder value won't go beyond 20000 based on 12v supply, in a 20-100ms sampling rate
+		  // hence, anything beyond 20000 can be inaccuracy due to low speed
+		  // only sampling value below 20000
+		  if (diff_L < 20000) travelledTick += diff_L;
+		  if (travelledTick >= targetTick) motorStop();
+
+
+
+
+		  sprintf(msg,"targetTick:%-5d", targetTick);
+		  OLED_ShowString(0, 0, msg);
+		  sprintf(msg,"travelTick:%-5d", travelledTick);
+		  OLED_ShowString(0, 12, msg);
+		  sprintf(msg,"curDiff:%-8d", diff_L);
+		  OLED_ShowString(0, 24, msg);
+		  sprintf(msg,"wperi:%-10d", (int)WHEEL_LENGTH);
+		  OLED_ShowString(0, 36, msg);
+
+
+
+	  }
+
+
+
+//	  }
+
+
+
+
+
   }
-  /* USER CODE END decodeRxBuffer */
+  /* USER CODE END moveDistTest */
 }
 
 /**
