@@ -87,7 +87,9 @@ void Error_Handler(void);
 /* USER CODE BEGIN Private defines */
 #define WHEEL_LENGTH 20.12
 #define PPR 330
-
+// distance calibration params
+#define DIST_M 1.133145885
+#define DIST_C 2.419816382
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

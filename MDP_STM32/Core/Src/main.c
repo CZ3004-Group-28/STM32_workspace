@@ -24,6 +24,7 @@
 /* USER CODE BEGIN Includes */
 #include "oled.h"
 #include "PID.h"
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -41,8 +42,6 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
-I2C_HandleTypeDef hi2c1;
-
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
@@ -55,7 +54,7 @@ UART_HandleTypeDef huart3;
 osThreadId_t defaultTaskHandle;
 const osThreadAttr_t defaultTask_attributes = {
   .name = "defaultTask",
-  .stack_size = 128 * 4,
+  .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for displayOLED */
@@ -78,27 +77,28 @@ static void MX_USART3_UART_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM10_Init(void);
-static void MX_I2C1_Init(void);
 void StartDefaultTask(void *argument);
 void displayMsg(void *argument);
 
 /* USER CODE BEGIN PFP */
+void motorMove();
 void motorTurn(uint8_t amt);
-void motorMoveForward();
-void motorMoveBackward();
 void motorStop();
+void acknowledgeTaskDone();
+
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-// buffer format = command character + numeric value [cmd char][num0][num1][num2]
-//			eg.  L120 L = turn left amount = 120
+uint8_t BUFFER_SIZE = 5;
 uint8_t aRxBuffer[10];
 
-uint8_t rxTask = 'x'; // custom default task
+uint8_t rxTask = 99; // custom default task
 uint8_t curTask[4];
 uint16_t rxVal = 0;
 uint8_t rxMsg[20];
+
+char ch[20];
 
 uint16_t speed_L = 0;
 uint16_t speed_R = 0;
@@ -106,8 +106,8 @@ uint8_t dir = 0;
 uint8_t turn = 74;
 uint16_t pwm_speed_L = 0;
 uint16_t pwm_speed_R = 0;
-int adj_dist_L = 0;
-int adj_dist_R = 0;
+//int adj_dist_L = 0;
+//int adj_dist_R = 0;
 // PID
 uint32_t tick;
 PID_typedef pid_speed_L, pid_speed_R, pid_dist_L, pid_dist_R;
@@ -122,14 +122,13 @@ int targetTick = 33; // targetSpeed /WHEEL_LENGTH*PPR*4*sampling/1000
 float initDuty_L = 2500;
 float initDuty_R = 2000;
 
-// for distance specific movement
-float targetDist = 120;
+float targetDist = 0;
 float positionNow = 0;
 
-// I2C
-uint8_t buf[12];
-uint8_t ICM_addr = 0x68;
-uint8_t ICM_REG_addr = 0x0;
+/// debug variables
+//uint8_t turnStep[11] = {50, 55, 60, 64, 69, 74, 82, 90, 99, 107, 115};
+//int8_t turnIndex = -1;
+
 /* USER CODE END 0 */
 
 /**
@@ -166,12 +165,11 @@ int main(void)
   MX_TIM1_Init();
   MX_TIM3_Init();
   MX_TIM10_Init();
-  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
   OLED_Init();
 //  PID_Init(&pid_speed_L, 0.4, 0.02, 0.05);
 
-  HAL_UART_Receive_IT(&huart3, (uint8_t *) aRxBuffer,4);
+  HAL_UART_Receive_IT(&huart3, (uint8_t *) aRxBuffer,BUFFER_SIZE);
 
   /* USER CODE END 2 */
 
@@ -261,40 +259,6 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-}
-
-/**
-  * @brief I2C1 Initialization Function
-  * @param None
-  * @retval None
-  */
-static void MX_I2C1_Init(void)
-{
-
-  /* USER CODE BEGIN I2C1_Init 0 */
-
-  /* USER CODE END I2C1_Init 0 */
-
-  /* USER CODE BEGIN I2C1_Init 1 */
-
-  /* USER CODE END I2C1_Init 1 */
-  hi2c1.Instance = I2C1;
-  hi2c1.Init.ClockSpeed = 100000;
-  hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
-  hi2c1.Init.OwnAddress1 = 0;
-  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
-  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
-  hi2c1.Init.OwnAddress2 = 0;
-  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
-  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
-  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
-  {
-    Error_Handler();
-  }
-  /* USER CODE BEGIN I2C1_Init 2 */
-
-  /* USER CODE END I2C1_Init 2 */
-
 }
 
 /**
@@ -663,54 +627,62 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+uint8_t getTaskIndex(uint8_t ch1, uint8_t ch2) {
+	if (ch1 == 'B' && ch2 == 'W') return 0; // backward
+	if (ch1 == 'F' && ch2 == 'W') return 1; // forward
+	if (ch1 == 'F' && ch2 == 'L') return 2; // forward left: turn left by 90 degree with 20cm displacement
+	if (ch1 == 'F' && ch2 == 'R') return 3;	// forward right: turn right by 90 degree with 20cm displacement
+	if (ch1 == 'B' && ch2 == 'L') return 4; // backward left
+	if (ch1 == 'B' && ch2 == 'R') return 5; // backward right
+	if (ch1 == 'S' && ch2 == 'T') return 6; // stop
+	if (ch1 == '_' && ch2 == 'D') return 98; // debug test
+	return 99;
+}
 
 // HAL_UART_RxCpltCallback evoked when buffer is full
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef * huart) {
 	// prevent unused argument(s) compilation warning
 	UNUSED(huart);
-	if (aRxBuffer[0] == '_') {
-		// task unrelated command: log message
-	    switch(aRxBuffer[3]) {
-	    case 'r': // rpi connected
-			sprintf(rxMsg, "%-16s", "rpi connected\0");
-			uint8_t * ch = "STM32 connected to rpi\r\n";
-			HAL_UART_Transmit(&huart3, (uint8_t *) ch,24,0xFFFF);
-			break;
-	    case 'p': // debug bluetooth gamepad connected
-			sprintf(rxMsg, "%-16s","gpad connected\0");
-	    	break;
-	    case 'e':
-	    	sprintf(rxMsg, "%-16s","manual mode\0");
-	    	break;
-	    case 'f':
-	    	sprintf(rxMsg, "%-16s","exit manual\0");
-	    }
-	} else {
-		sprintf(rxMsg, "doing:%-10s", aRxBuffer);
-		sprintf(curTask, "%4s", aRxBuffer);
-		rxTask = aRxBuffer[0];
-		rxVal = (aRxBuffer[1] - 48) * 100 + (aRxBuffer[2] - 48) * 10 + (aRxBuffer[3] - 48);
-	}
+
+	sprintf(curTask, "%c%c%c%c", aRxBuffer[0],aRxBuffer[1],aRxBuffer[2],aRxBuffer[3]);
+	sprintf(rxMsg, "doing:%-10s", curTask);
+	rxTask = 99;
+	//getTaskIndex(aRxBuffer[0], aRxBuffer[1]);
+	if (aRxBuffer[0] == 'B' && aRxBuffer[1] == 'W') rxTask = 0; // backward
+	else if (aRxBuffer[0] == 'F' && aRxBuffer[1] == 'W') rxTask = 1; // forward
+	else if (aRxBuffer[0] == 'F' && aRxBuffer[1] == 'L') rxTask = 2; // forward left: turn left by 90 degree with 20cm displacement
+	else if (aRxBuffer[0] == 'F' && aRxBuffer[1] == 'R') rxTask = 3;	// forward right: turn right by 90 degree with 20cm displacement
+	else if (aRxBuffer[0] == 'B' && aRxBuffer[1] == 'L') rxTask = 4; // backward left
+	else if (aRxBuffer[0] == 'B' && aRxBuffer[1] == 'R') rxTask = 5; // backward right
+	else if (aRxBuffer[0] == 'S' && aRxBuffer[1] == 'T') rxTask = 6; // stop
+	else if (aRxBuffer[0] == 'D' && aRxBuffer[1] == 'L') rxTask = 96; // left duty test
+	else if (aRxBuffer[0] == 'D' && aRxBuffer[1] == 'R') rxTask = 97; // right duty test
+	else if (aRxBuffer[0] == 'T' && aRxBuffer[1] == 'T') rxTask = 98; // steering test
+
+	rxVal = (aRxBuffer[2] - 48) * 10 + (aRxBuffer[3] - 48);
+//		char ch[10];
+//		sprintf(ch, "rxTask:%d|rxVal:%d\n",rxTask,rxVal);
+//		HAL_UART_Transmit(&huart3, (uint8_t *) ch, 17, 0xFFFF);
+
 
 	// clear aRx buffer
 	__HAL_UART_FLUSH_DRREGISTER(&huart3);
-	HAL_UART_Receive_IT(&huart3, aRxBuffer, 4);
+	HAL_UART_Receive_IT(&huart3, aRxBuffer, BUFFER_SIZE);
 	//HAL_UART_Transmit(&huart3, (uint8_t *) aTxBuffer, BUFFER_SIZE);
-	//HAL_UART_Transmit(&huart3, (uint8_t *) aTxBuffer, BUFFER_SIZE, 0xFFFF);
+	//HAL_UART_Transmit(&huart3, (uint8_t *)  aTxBuffer, BUFFER_SIZE, 0xFFFF);
 }
 
+int clickOnce = 0;
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
+	if (clickOnce) return;
 	if (GPIO_Pin == SW1_Pin) {
-		HAL_GPIO_TogglePin(LED3_GPIO_Port, LED3_Pin);
-		uint8_t ch[5];
-		sprintf(ch, "proC\n");
-		HAL_UART_Transmit(&huart3, (uint8_t *) ch, 5, 0xFFFF);
+		HAL_UART_Transmit(&huart3,"button clicked\r\n", 16, 0xFFFF);
+		clickOnce = 1;
 	}
 
 }
 
 void motorTurn(uint8_t amt) {
-	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
 	// 16Mhz, prescaler: 160, period: 1000
 	// extreme left: 95, center: 145, extreme right: 245
 	//htim1.Instance->CCR4 = (amt > 245) ? 245 : ((amt < 95) ? 95 : amt);
@@ -719,35 +691,17 @@ void motorTurn(uint8_t amt) {
 	//extreme left: 50, center: 74, extreme right:115
 	turn = (amt > 115) ? 115 : ((amt < 50) ? 50 : amt);
 	htim1.Instance->CCR4 = turn;
-	acknowledgeTaskDone();
-
 }
 
-void motorMoveForward() {
+void motorMove(uint8_t * dir) {
+	HAL_GPIO_WritePin(GPIOA, AIN2_Pin, (*dir ? GPIO_PIN_RESET : GPIO_PIN_SET));
+	HAL_GPIO_WritePin(GPIOA, AIN1_Pin, (*dir ? GPIO_PIN_SET: GPIO_PIN_RESET));
+	// right wheel: clockwise (forward)
+	HAL_GPIO_WritePin(GPIOA, BIN2_Pin, (*dir ? GPIO_PIN_RESET: GPIO_PIN_SET));
+	HAL_GPIO_WritePin(GPIOA, BIN1_Pin, (*dir ? GPIO_PIN_SET: GPIO_PIN_RESET));
+
 	pwm_speed_L = 7199 * initDuty_L / 10000;
 	pwm_speed_R = 7199 * initDuty_R / 10000;
-	// anticlockwise (forward)
-	HAL_GPIO_WritePin(GPIOA, AIN2_Pin, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(GPIOA, AIN1_Pin, GPIO_PIN_SET);
-	// clockwise (forward)
-	HAL_GPIO_WritePin(GPIOA, BIN2_Pin, GPIO_PIN_RESET);
-	HAL_GPIO_WritePin(GPIOA, BIN1_Pin, GPIO_PIN_SET);
-
-	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_1, pwm_speed_L);
-	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_2, pwm_speed_R);
-}
-
-void motorMoveBackward() {
-	pwm_speed_L = 7199 * initDuty_L / 10000;
-	pwm_speed_R = 7199 * initDuty_R / 10000;
-	 // clockwise (backward)
-	HAL_GPIO_WritePin(GPIOA, AIN2_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(GPIOA, AIN1_Pin, GPIO_PIN_RESET);
-
-	 // anticlockwise (backward)
-	HAL_GPIO_WritePin(GPIOA, BIN2_Pin, GPIO_PIN_SET);
-	HAL_GPIO_WritePin(GPIOA, BIN1_Pin, GPIO_PIN_RESET);
-
 	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_1, pwm_speed_L);
 	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_2, pwm_speed_R);
 }
@@ -757,70 +711,39 @@ void motorStop() {
 	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_2, 0);
 	pwm_speed_L = 0;
 	pwm_speed_R = 0;
-	pid_speed_L.EkSum = 0;
-	pid_speed_R.EkSum = 0;
-}
-
-
-void Start_Monitoring_Speed_Dist() {
-//	PID_Init(&pid_speed_L, 2.5, 0.0, 0.0);
-//	PID_Init(&pid_speed_R, 2.5, 0.0, 0.0);
-//	PID_Init(&pid_dist_L, 1, 0.0, 0.0);
-//	PID_Init(&pid_dist_R, 1, 0.0, 0.0);
-	HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_1);
-	HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_2);
-
-	HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
-	HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);
-//	motorTurn(74);
-	HAL_TIM_Base_Start_IT(&htim10);
-
-	cnt1_L = __HAL_TIM_GET_COUNTER(&htim2);
-	cnt1_R = __HAL_TIM_GET_COUNTER(&htim3);
-}
-
-void Stop_Monitoring_Speed_Dist() {
-	motorStop();
-	HAL_TIM_Encoder_Stop(&htim2, TIM_CHANNEL_ALL);
-	HAL_TIM_Encoder_Stop(&htim3, TIM_CHANNEL_ALL);
-	HAL_TIM_Base_Stop_IT(&htim10);
-	targetDist = 0;
-	positionNow = 0;
-
-}
-
-void motorMoveByDist(float dist, int dir) {
-	targetDist = 1.133145885 * dist - 2.419816382;
-	Start_Monitoring_Speed_Dist();
-	if (dir) motorMoveForward();
-	else motorMoveBackward();
 }
 
 void acknowledgeTaskDone() {
 	//acknowledge rpi task done
-	uint8_t ch[20];
+//	uint8_t ch[7];
 	sprintf(rxMsg, "done:%-11s", curTask);
-	sprintf(ch,"ack|%4s|done\n", curTask);
-	HAL_UART_Transmit(&huart3, ch, 14, 0xFFFF);
-	sprintf(curTask, "x000");
+	sprintf(ch,"ACK|%c%c\n", curTask[0], curTask[1]);
+	HAL_UART_Transmit(&huart3, ch, 7, 0xFFFF);
+	sprintf(curTask, "PEND");
 	rxVal = 0;
 }
 
-// TIM6 timer interrupt evoked every 10ms
+// TIM10 timer interrupt evoked every 10ms
 // periodically update DC motor's pwmDuty
 // periodically check motor moved distance and speed
+// this ISR block RTOS task when running, hence, must disable it whenever it is not used.
 int count = 0;
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	if (htim != &htim10) return;
 
-	//test travel for 100cm and stop
+	//test travel for targetDist cm and stop
 	if (positionNow >= targetDist) {
-		Stop_Monitoring_Speed_Dist();
+		HAL_TIM_Base_Stop_IT(&htim10); // compulsory to release control to  other tasks
+		motorTurn(74);
+		motorStop();
+		targetDist = 0;
+		positionNow = 0;
 		acknowledgeTaskDone();
+		clickOnce = 0; // button click flag to be cleared once reach travel distance (from HAL_GPIO_EXTI_Callback)
+		return;
 	}
 
 	int cnt2_L, cnt2_R;
-
 	// Get current speed_L and speed_R
 	cnt2_L = __HAL_TIM_GET_COUNTER(&htim2);
 	if (__HAL_TIM_IS_TIM_COUNTING_DOWN(&htim2)) {
@@ -866,12 +789,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 
 //	  uint8_t ch[20];
 //	 sprintf(ch,"time:%-6d\n", count);
-//	HAL_UART_Transmit(&huart3, (uint8_t *) ch,20,0xFFFF);
-//	sprintf(ch,"cT:%-6d|%-6d\n", speed_L, speed_R);
-//	HAL_UART_Transmit(&huart3, (uint8_t *) ch,20,0xFFFF);
-//  sprintf(ch, "pos:%-12d\n\n", (int) positionNow);
-//  HAL_UART_Transmit(&huart3, (uint8_t *) ch,20,0xFFFF);
-	count++;
+//	HAL_UART_Transmit(&huart3, (uint8_t *) ch,12,0xFFFF);
+//	count++;
 }
 /* USER CODE END 4 */
 
@@ -885,40 +804,84 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
+	// servo motor turn
+	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
+	// motor backwheel move
+	HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_1);
+	HAL_TIM_PWM_Start(&htim8, TIM_CHANNEL_2);
+	// encoder monitor speed and distance
+	HAL_TIM_Encoder_Start(&htim2, TIM_CHANNEL_ALL);
+	HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);
 
+	//adjust steering
+	motorTurn(74);
   /* Infinite loop */
   for(;;)
   {
+	  // FW, BW handle acknowledgeTaskDone() under HAL_TIM_PeriodElapsedCallback
 	 switch(rxTask) {
-	 case '_':
+	 case 0: //BW
+	 case 1: //FW
+		targetDist = rxVal*DIST_M - DIST_C;
+//		sprintf(ch,"targetDist:%-8d\n", (int)targetDist);
+//		HAL_UART_Transmit(&huart3,(uint8_t *) ch, 20, 0xFFFF);
+		motorMove(&rxTask);
+		rxTask = 99;
+		cnt1_L = __HAL_TIM_GET_COUNTER(&htim2);
+		cnt1_R = __HAL_TIM_GET_COUNTER(&htim3);
+		HAL_TIM_Base_Start_IT(&htim10); // this MAY block other task
+
 		 break;
-	 case 'f':
-		 rxTask = 'x';
-		 motorMoveByDist(rxVal, 1);
-		 break;
-	 case 'b':
-		 rxTask = 'x';
-		 motorMoveByDist(rxVal, 0);
-		 break;
-	 case 's':
-		 rxTask = 'x';
-		 motorStop();
+	 case 2: //FL
+//		 sprintf(ch, "rxTask: %d\n", rxTask);
+//		 HAL_UART_Transmit(&huart3, ch, 20, 0xFFFF);
+		 rxTask = 99;
 		 acknowledgeTaskDone();
 		 break;
-	 case 't':
-		 rxTask = 'x';
-		 motorTurn(rxVal);
+	 case 3: //FR
+//		 sprintf(ch, "rxTask: %d\n", rxTask);
+//		 HAL_UART_Transmit(&huart3, ch, 20, 0xFFFF);
+		 rxTask = 99;
+		 acknowledgeTaskDone();
 		 break;
-	 case 'u':
-		 initDuty_L = rxVal * 10;
+	 case 4: //BL
+//		 sprintf(ch, "rxTask: %d\n", rxTask);
+//		 HAL_UART_Transmit(&huart3, ch, 20, 0xFFFF);
+		 rxTask = 99;
+		 acknowledgeTaskDone();
 		 break;
-	 case 'v':
-		 initDuty_R = rxVal * 10;
+	 case 5: //BR
+//		 sprintf(ch, "rxTask: %d\n", rxTask);
+//		 HAL_UART_Transmit(&huart3, ch, 20, 0xFFFF);
+		 rxTask = 99;
+		 acknowledgeTaskDone();
 		 break;
-	 case 'x':
-		 // wait for next command
+	 case 6: // STOP
+		motorStop();
+		rxTask = 99;
+		 acknowledgeTaskDone();
+		 break;
+	 case 96: // DL, left duty test
+		 initDuty_L = rxVal * 100;
+		 rxTask = 99;
+		 acknowledgeTaskDone();
+		 break;
+	 case 97: // DR, right duty test
+		 initDuty_R = rxVal * 100;
+		 rxTask = 99;
+		 acknowledgeTaskDone();
+		 break;
+	 case 98: // TT, steering test
+		 // angle 50-74-115
+		 motorTurn(50 + rxVal);
+		 rxTask = 99;
+		 acknowledgeTaskDone();
+		 break;
+	 case 99:
+		 // wait for current command finish
 		 break;
 	 default:
+		 rxTask = 99;
 		 break;
 	 }
 
@@ -939,44 +902,24 @@ void displayMsg(void *argument)
   /* USER CODE BEGIN displayMsg */
 	char msg[20];
   /* Infinite loop */
-	uint8_t cur_line = 0;
   for(;;)
   {
 	  OLED_ShowString(0, 0, rxMsg);
-	  sprintf(msg,"cT:%-6d|%-6d", speed_L, speed_R);
+	  sprintf(msg, "rxTask:%-9d", rxTask);
+//	  sprintf(msg,"cT:%-6d|%-6d", speed_L, speed_R);
 	  OLED_ShowString(0, 12, msg);
-	  sprintf(msg, "pos:%-12d", (int) positionNow);
-	  OLED_ShowString(0, 24, msg);
+//	  float real_dist = (positionNow + DIST_C) / DIST_M;
+//	  sprintf(msg, "actpos:%-9d", (int) real_dist);
+//	  OLED_ShowString(0, 24, msg);
+//	  sprintf(msg, "turn:%-11d", (int) turn);
+//	  OLED_ShowString(0, 36, msg);
+//	  sprintf(msg, "targetDist:%-5d", (int)((targetDist + DIST_C) / DIST_M));
+//	  OLED_ShowString(0, 36, msg);
+//	  sprintf(msg, "test:%-11d", (int)distStep);
+//	  OLED_ShowString(0, 48, msg);
 	  sprintf(msg, "buf:%-12s", aRxBuffer);
-	  OLED_ShowString(0, 36, msg);
-
-//	  cur_line = 0;
-//	  // clear message
-//	  OLED_ShowString(0,cur_line, rxMsg); cur_line += CHAR_H;
-//	  sprintf(msg, "");
-////
-//	  sprintf(msg, "st:%c,val:%-7d", rxTask, rxVal);
-//	  OLED_ShowString(0, cur_line, msg); cur_line += CHAR_H;
-//
-//	  switch(rxTask) {
-//	 	 case 'f':
-//	 	 case 'b':
-//	 	 case 's':
-//	 		 sprintf(msg, "%-6d|%-6d|%-2d", speed_L, speed_R, dir);
-//			 OLED_ShowString(0, cur_line, msg); cur_line += CHAR_H;
-//	 		 break;
-//	 	 case 't':
-//	 		sprintf(msg, "turn:%-11d", turn);
-//	 		OLED_ShowString(0, cur_line, msg); cur_line += CHAR_H;
-//	 		 break;
-//	 	 default:
-//	 		// HAL_GPIO_TogglePin(LED3_GPIO_Port, LED3_Pin);
-//	 		 break;
-//	 	 }
-//
-//	sprintf(msg, "bf:%-16s", aRxBuffer);
-//	OLED_ShowString(0, 48, msg);
-//	OLED_Refresh_Gram();
+	  OLED_ShowString(0, 48, msg);
+	  OLED_Refresh_Gram();
 	osDelay(10);
   }
   /* USER CODE END displayMsg */
