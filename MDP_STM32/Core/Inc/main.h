@@ -90,6 +90,8 @@ void Error_Handler(void);
 // distance calibration params
 #define DIST_M 1.133145885
 #define DIST_C 2.419816382
+#define DIR_FORWARD 1
+#define DIR_BACKWARD 0
 /* USER CODE END Private defines */
 
 #ifdef __cplusplus

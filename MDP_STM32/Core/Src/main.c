@@ -24,6 +24,7 @@
 /* USER CODE BEGIN Includes */
 #include "oled.h"
 #include "PID.h"
+#include "ICM20948.h"
 #include <stdio.h>
 /* USER CODE END Includes */
 
@@ -42,6 +43,8 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+I2C_HandleTypeDef hi2c1;
+
 TIM_HandleTypeDef htim1;
 TIM_HandleTypeDef htim2;
 TIM_HandleTypeDef htim3;
@@ -77,11 +80,12 @@ static void MX_USART3_UART_Init(void);
 static void MX_TIM1_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM10_Init(void);
+static void MX_I2C1_Init(void);
 void StartDefaultTask(void *argument);
 void displayMsg(void *argument);
 
 /* USER CODE BEGIN PFP */
-void motorMove();
+void motorMove(int const dir);
 void motorTurn(uint8_t amt);
 void motorStop();
 void acknowledgeTaskDone();
@@ -98,37 +102,41 @@ uint8_t curTask[4];
 uint16_t rxVal = 0;
 uint8_t rxMsg[20];
 
-char ch[20];
+char ch[100];
 
-uint16_t speed_L = 0;
-uint16_t speed_R = 0;
+uint16_t dist_dL = 0;
+uint16_t dist_dR = 0;
 uint8_t dir = 0;
 uint8_t turn = 74;
-uint16_t pwm_speed_L = 0;
-uint16_t pwm_speed_R = 0;
-//int adj_dist_L = 0;
-//int adj_dist_R = 0;
-// PID
-uint32_t tick;
-PID_typedef pid_speed_L, pid_speed_R, pid_dist_L, pid_dist_R;
+uint16_t pwm_speed_L = 1200;
+uint16_t pwm_speed_R = 1200;
+uint8_t manualMode = 0;
+
 int cnt1_L, cnt1_R;
 float targetSpeed = 50;
 // sampling every 50ms
 // 50ms achieved by tim10: 16Mhz, prescalar: 1000, AAR: 799
 uint16_t sampling = 10L;
-int targetTick = 33; // targetSpeed /WHEEL_LENGTH*PPR*4*sampling/1000
+//int targetTick = 33; // targetSpeed /WHEEL_LENGTH*PPR*4*sampling/1000
 
-// straight line movement pwm duty
-float initDuty_L = 2500;
-float initDuty_R = 2000;
-
+float maxDuty = 1200;
+float initDuty_L = 1200;
+float initDuty_R = 1200;
 float targetDist = 0;
 float positionNow = 0;
 
-/// debug variables
-//uint8_t turnStep[11] = {50, 55, 60, 64, 69, 74, 82, 90, 99, 107, 115};
-//int8_t turnIndex = -1;
+//I2C
+int16_t gyroZ;
+int accAngle = 0;
+int correction = 0;
 
+float ek = 0, ek1 = 0, ekSum = 0;
+float Kp=10, Kd=0, Ki=0;
+uint8_t PIDOn = 1;
+
+
+// debug variables
+uint8_t distStep = 10;
 /* USER CODE END 0 */
 
 /**
@@ -165,9 +173,11 @@ int main(void)
   MX_TIM1_Init();
   MX_TIM3_Init();
   MX_TIM10_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
   OLED_Init();
-//  PID_Init(&pid_speed_L, 0.4, 0.02, 0.05);
+  ICM20948_init(&hi2c1,0,GYRO_FULL_SCALE_1000DPS,ACCEL_FULL_SCALE_8G);
+//  PID_Init(&pid_gyroZ, 0.01, 0.0, 0.0);
 
   HAL_UART_Receive_IT(&huart3, (uint8_t *) aRxBuffer,BUFFER_SIZE);
 
@@ -197,7 +207,7 @@ int main(void)
   defaultTaskHandle = osThreadNew(StartDefaultTask, NULL, &defaultTask_attributes);
 
   /* creation of displayOLED */
-  displayOLEDHandle = osThreadNew(displayMsg, NULL, &displayOLED_attributes);
+//  displayOLEDHandle = osThreadNew(displayMsg, NULL, &displayOLED_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -259,6 +269,40 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C1_Init(void)
+{
+
+  /* USER CODE BEGIN I2C1_Init 0 */
+
+  /* USER CODE END I2C1_Init 0 */
+
+  /* USER CODE BEGIN I2C1_Init 1 */
+
+  /* USER CODE END I2C1_Init 1 */
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.ClockSpeed = 100000;
+  hi2c1.Init.DutyCycle = I2C_DUTYCYCLE_2;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C1_Init 2 */
+
+  /* USER CODE END I2C1_Init 2 */
+
 }
 
 /**
@@ -655,6 +699,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef * huart) {
 	else if (aRxBuffer[0] == 'B' && aRxBuffer[1] == 'L') rxTask = 4; // backward left
 	else if (aRxBuffer[0] == 'B' && aRxBuffer[1] == 'R') rxTask = 5; // backward right
 	else if (aRxBuffer[0] == 'S' && aRxBuffer[1] == 'T') rxTask = 6; // stop
+	else if (aRxBuffer[0] == 'P' && aRxBuffer[1] == 'P') rxTask = 95; // toggle pid controller
 	else if (aRxBuffer[0] == 'D' && aRxBuffer[1] == 'L') rxTask = 96; // left duty test
 	else if (aRxBuffer[0] == 'D' && aRxBuffer[1] == 'R') rxTask = 97; // right duty test
 	else if (aRxBuffer[0] == 'T' && aRxBuffer[1] == 'T') rxTask = 98; // steering test
@@ -673,11 +718,30 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef * huart) {
 }
 
 int clickOnce = 0;
+//uint8_t steerStep[10] = {115,
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 	if (clickOnce) return;
 	if (GPIO_Pin == SW1_Pin) {
-		HAL_UART_Transmit(&huart3,"button clicked\r\n", 16, 0xFFFF);
 		clickOnce = 1;
+//		HAL_UART_Transmit(&huart3,"button clicked\r\n", 16, 0xFFFF);
+		PIDOn = 0;
+		// FR 20cm test
+//		targetDist = 32 * DIST_M - DIST_C;
+//		motorTurn(115);
+//		pwm_speed_L = 2800;
+//		pwm_speed_R = 1500;
+
+//		motorMove(DIR_FORWARD);
+		// BR 20cm test
+//		targetDist = 32 * DIST_M - DIST_C;
+//		motorTurn(50);
+//		pwm_speed_L = 0;
+//		pwm_speed_R = 2800;
+//		motorMove(DIR_BACKWARD);
+		cnt1_L = __HAL_TIM_GET_COUNTER(&htim2);
+		cnt1_R = __HAL_TIM_GET_COUNTER(&htim3);
+		HAL_TIM_Base_Start_IT(&htim10);
+
 	}
 
 }
@@ -693,24 +757,27 @@ void motorTurn(uint8_t amt) {
 	htim1.Instance->CCR4 = turn;
 }
 
-void motorMove(uint8_t * dir) {
-	HAL_GPIO_WritePin(GPIOA, AIN2_Pin, (*dir ? GPIO_PIN_RESET : GPIO_PIN_SET));
-	HAL_GPIO_WritePin(GPIOA, AIN1_Pin, (*dir ? GPIO_PIN_SET: GPIO_PIN_RESET));
+void motorMove(int const dir) {
+	HAL_GPIO_WritePin(GPIOA, AIN2_Pin, (dir ? GPIO_PIN_RESET : GPIO_PIN_SET));
+	HAL_GPIO_WritePin(GPIOA, AIN1_Pin, (dir ? GPIO_PIN_SET: GPIO_PIN_RESET));
 	// right wheel: clockwise (forward)
-	HAL_GPIO_WritePin(GPIOA, BIN2_Pin, (*dir ? GPIO_PIN_RESET: GPIO_PIN_SET));
-	HAL_GPIO_WritePin(GPIOA, BIN1_Pin, (*dir ? GPIO_PIN_SET: GPIO_PIN_RESET));
-
-	pwm_speed_L = 7199 * initDuty_L / 10000;
-	pwm_speed_R = 7199 * initDuty_R / 10000;
+	HAL_GPIO_WritePin(GPIOA, BIN2_Pin, (dir ? GPIO_PIN_RESET: GPIO_PIN_SET));
+	HAL_GPIO_WritePin(GPIOA, BIN1_Pin, (dir ? GPIO_PIN_SET: GPIO_PIN_RESET));
 	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_1, pwm_speed_L);
 	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_2, pwm_speed_R);
 }
 
 void motorStop() {
+	HAL_TIM_Base_Stop_IT(&htim10);
+	targetDist = 0;
+	positionNow = 0;
 	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_1, 0);
 	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_2, 0);
 	pwm_speed_L = 0;
 	pwm_speed_R = 0;
+	ekSum = 0;
+	ek1 = 0;
+
 }
 
 void acknowledgeTaskDone() {
@@ -732,7 +799,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	if (htim != &htim10) return;
 
 	//test travel for targetDist cm and stop
-	if (positionNow >= targetDist) {
+	if (positionNow >= targetDist && !manualMode) {
 		HAL_TIM_Base_Stop_IT(&htim10); // compulsory to release control to  other tasks
 		motorTurn(74);
 		motorStop();
@@ -747,44 +814,44 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	// Get current speed_L and speed_R
 	cnt2_L = __HAL_TIM_GET_COUNTER(&htim2);
 	if (__HAL_TIM_IS_TIM_COUNTING_DOWN(&htim2)) {
-		speed_L = (cnt2_L <= cnt1_L) ? cnt1_L - cnt2_L : (65535 - cnt2_L) + cnt1_L;
+		dist_dL = (cnt2_L <= cnt1_L) ? cnt1_L - cnt2_L : (65535 - cnt2_L) + cnt1_L;
 	} else {
-		speed_L = (cnt2_L >= cnt1_L) ? cnt2_L - cnt1_L : (65535 - cnt1_L) + cnt2_L;
+		dist_dL = (cnt2_L >= cnt1_L) ? cnt2_L - cnt1_L : (65535 - cnt1_L) + cnt2_L;
 	}
 
 	cnt2_R = __HAL_TIM_GET_COUNTER(&htim3);
 	if (__HAL_TIM_IS_TIM_COUNTING_DOWN(&htim3)) {
-		speed_R = (cnt2_R <= cnt1_R) ? cnt1_R - cnt2_R : (65535 - cnt2_R) + cnt1_R;
+		dist_dR = (cnt2_R <= cnt1_R) ? cnt1_R - cnt2_R : (65535 - cnt2_R) + cnt1_R;
 	} else {
-		speed_R = (cnt2_R >= cnt1_R) ? cnt2_R - cnt1_R : (65535 - cnt1_R) + cnt2_R;
+		dist_dR = (cnt2_R >= cnt1_R) ? cnt2_R - cnt1_R : (65535 - cnt1_R) + cnt2_R;
 	}
-//	  speed_L = speed_L == 65535 ? 0 : speed_L;
-//	  speed_R = speed_R == 65535 ? 0 : speed_R;
 	cnt1_L = __HAL_TIM_GET_COUNTER(&htim2);
 	cnt1_R = __HAL_TIM_GET_COUNTER(&htim3);
-//
-	//PID
-	positionNow += (speed_L + speed_R) / 2 * 0.015242;
+
+	// drive straight calibration
+	if (PIDOn){
+		ICM20948_readGyroscope_Z(&hi2c1,0, GYRO_FULL_SCALE_1000DPS, &gyroZ);
+		accAngle += gyroZ;
+		if (accAngle != 0) {
+			ekSum += accAngle;
+			correction = Kp * accAngle + Ki * ekSum + Kd * (ek1 - accAngle);
+			ek1 = accAngle;
+			correction = correction > 600 ? 600 : (correction < -600 ? -600 : correction);
+			if (correction > 0) { // deviate to left
+				pwm_speed_L = maxDuty + correction;
+			} else { // deviate to right
+				pwm_speed_R = maxDuty - correction;
+			}
+			__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_1, pwm_speed_L);
+			__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_2, pwm_speed_R);
+			// BUFFER OVERFLOW WARNING! DO NOT USE SPRINTF WHENEVER POSSIBLE
+//			snprintf(ch, 60, "z:%3d|acc:%-5d|pL:%-5d|pR:%-5d|corr:%-5d\r\n",gyroZ, accAngle, pwm_speed_L,pwm_speed_R, correction);
+//			HAL_UART_Transmit(&huart3,(uint8_t *) ch, 46, 0xFFFF);
+		}
+	}
+
 	// 0.015242cm per encoder tick = WHEEL_LENGTH / (PPR*4)
-
-	  // set target distance to be 100cm
-//	  adj_dist_L = PID_Position(100, positionNow, &pid_dist_L);
-//	  adj_dist_R = PID_Position(100, positionNow, &pid_dist_R);
-//	  pwm_speed_L += adj_dist_L;
-//	  pwm_speed_R += adj_dist_R;
-//	  if (adj_dist_L > 0) motorLForward();
-//	  else motorLBackward();
-//	  if (adj_dist_R > 0) motorRForward();
-//	  else motorRBackward();
-//
-//	  if (adj_dist_L == 0) motorLStop();
-//	  if (adj_dist_R == 0) motorRStop();
-//
-//	  pwm_speed_L += PID_Duty(targetTick, speed_L, &pid_speed_L);
-//	  pwm_speed_R += PID_Duty(targetTick, speed_R, &pid_speed_R);
-
-
-
+	positionNow += (dist_dL + dist_dR) / 2 * 0.015242;
 
 
 //	  uint8_t ch[20];
@@ -815,6 +882,11 @@ void StartDefaultTask(void *argument)
 
 	//adjust steering
 	motorTurn(74);
+
+	//initialise pwm duty
+//	pwm_speed_L = 7199 * initDuty_L / 10000;
+//	pwm_speed_R = 7199 * initDuty_R / 10000;
+
   /* Infinite loop */
   for(;;)
   {
@@ -825,12 +897,14 @@ void StartDefaultTask(void *argument)
 		targetDist = rxVal*DIST_M - DIST_C;
 //		sprintf(ch,"targetDist:%-8d\n", (int)targetDist);
 //		HAL_UART_Transmit(&huart3,(uint8_t *) ch, 20, 0xFFFF);
-		motorMove(&rxTask);
+		pwm_speed_L = initDuty_L;
+		pwm_speed_R = initDuty_R;
+		motorMove(rxTask ? DIR_FORWARD : DIR_BACKWARD);
 		rxTask = 99;
 		cnt1_L = __HAL_TIM_GET_COUNTER(&htim2);
 		cnt1_R = __HAL_TIM_GET_COUNTER(&htim3);
+		manualMode = rxVal > 80;
 		HAL_TIM_Base_Start_IT(&htim10); // this MAY block other task
-
 		 break;
 	 case 2: //FL
 //		 sprintf(ch, "rxTask: %d\n", rxTask);
@@ -859,6 +933,11 @@ void StartDefaultTask(void *argument)
 	 case 6: // STOP
 		motorStop();
 		rxTask = 99;
+		 acknowledgeTaskDone();
+		 break;
+	 case 95: // enable/disable pid
+		 PIDOn = rxVal;
+		 rxTask = 99;
 		 acknowledgeTaskDone();
 		 break;
 	 case 96: // DL, left duty test
@@ -900,25 +979,13 @@ void StartDefaultTask(void *argument)
 void displayMsg(void *argument)
 {
   /* USER CODE BEGIN displayMsg */
-	char msg[20];
   /* Infinite loop */
   for(;;)
   {
-	  OLED_ShowString(0, 0, rxMsg);
-	  sprintf(msg, "rxTask:%-9d", rxTask);
-//	  sprintf(msg,"cT:%-6d|%-6d", speed_L, speed_R);
-	  OLED_ShowString(0, 12, msg);
-//	  float real_dist = (positionNow + DIST_C) / DIST_M;
-//	  sprintf(msg, "actpos:%-9d", (int) real_dist);
-//	  OLED_ShowString(0, 24, msg);
-//	  sprintf(msg, "turn:%-11d", (int) turn);
-//	  OLED_ShowString(0, 36, msg);
-//	  sprintf(msg, "targetDist:%-5d", (int)((targetDist + DIST_C) / DIST_M));
-//	  OLED_ShowString(0, 36, msg);
-//	  sprintf(msg, "test:%-11d", (int)distStep);
+	  sprintf(ch, "dist:%-11d",distStep);
+	  OLED_ShowString(0, 0, ch);
+//	  sprintf(msg, "buf:%-12s", aRxBuffer);
 //	  OLED_ShowString(0, 48, msg);
-	  sprintf(msg, "buf:%-12s", aRxBuffer);
-	  OLED_ShowString(0, 48, msg);
 	  OLED_Refresh_Gram();
 	osDelay(10);
   }

@@ -1,6 +1,6 @@
 #include "PID.h"
 
-void PID_Init(PID_typedef * PID, float Kp, float Ki, float Kd) {
+void PID_Init(PID_typedef * PID, float const Kp, float const Ki, float const Kd) {
 	PID->Kp = Kp;
 	PID->Ki = Ki;
 	PID->Kd = Kd;
@@ -9,9 +9,19 @@ void PID_Init(PID_typedef * PID, float Kp, float Ki, float Kd) {
 	PID->EkSum = 0;
 }
 
-int PID_Duty(float targetSpeed, float actualSpeed, PID_typedef * PID) {
+int PID_Correction(int16_t targetVal, int16_t actualVal, PID_typedef * PID) {
 	float duty;
-	PID->Ek = targetSpeed - actualSpeed;
+	PID->Ek = targetVal - actualVal;
+	PID->EkSum += PID->Ek;
+	duty = PID->Kp * PID->Ek + PID->Ki * PID->EkSum + PID->Kd * (PID->Ek1 - PID->Ek);
+	PID->Ek1 = PID->Ek;
+
+	return duty;
+}
+
+int PID_Duty(float targetVal, float currentVal, PID_typedef * PID) {
+	float duty;
+	PID->Ek = targetVal - currentVal;
 	PID->EkSum += PID->Ek;
 	duty = PID->Kp * PID->Ek + PID->Ki * PID->EkSum + PID->Kd * (PID->Ek1 - PID->Ek);
 	PID->Ek1 = PID->Ek;
