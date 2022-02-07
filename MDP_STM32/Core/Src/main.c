@@ -132,7 +132,7 @@ int correction = 0;
 
 float ek = 0, ek1 = 0, ekSum = 0;
 float Kp=10, Kd=0, Ki=0;
-uint8_t PIDOn = 1;
+uint8_t PIDOn = 0;
 
 
 // debug variables
@@ -699,6 +699,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef * huart) {
 	else if (aRxBuffer[0] == 'B' && aRxBuffer[1] == 'L') rxTask = 4; // backward left
 	else if (aRxBuffer[0] == 'B' && aRxBuffer[1] == 'R') rxTask = 5; // backward right
 	else if (aRxBuffer[0] == 'S' && aRxBuffer[1] == 'T') rxTask = 6; // stop
+	else if (aRxBuffer[0] == 'T' && aRxBuffer[1] == 'G') rxTask = 94; // set target distance
 	else if (aRxBuffer[0] == 'P' && aRxBuffer[1] == 'P') rxTask = 95; // toggle pid controller
 	else if (aRxBuffer[0] == 'D' && aRxBuffer[1] == 'L') rxTask = 96; // left duty test
 	else if (aRxBuffer[0] == 'D' && aRxBuffer[1] == 'R') rxTask = 97; // right duty test
@@ -894,7 +895,7 @@ void StartDefaultTask(void *argument)
 	 switch(rxTask) {
 	 case 0: //BW
 	 case 1: //FW
-		targetDist = rxVal*DIST_M - DIST_C;
+//		targetDist = rxVal*DIST_M - DIST_C;
 //		sprintf(ch,"targetDist:%-8d\n", (int)targetDist);
 //		HAL_UART_Transmit(&huart3,(uint8_t *) ch, 20, 0xFFFF);
 		pwm_speed_L = initDuty_L;
@@ -933,6 +934,11 @@ void StartDefaultTask(void *argument)
 	 case 6: // STOP
 		motorStop();
 		rxTask = 99;
+		 acknowledgeTaskDone();
+		 break;
+	 case 94: // TG set target distance
+		 targetDist = rxVal;
+		 rxTask = 99;
 		 acknowledgeTaskDone();
 		 break;
 	 case 95: // enable/disable pid
@@ -980,12 +986,11 @@ void displayMsg(void *argument)
 {
   /* USER CODE BEGIN displayMsg */
   /* Infinite loop */
+	char msg[16];
   for(;;)
   {
-	  sprintf(ch, "dist:%-11d",distStep);
-	  OLED_ShowString(0, 0, ch);
-//	  sprintf(msg, "buf:%-12s", aRxBuffer);
-//	  OLED_ShowString(0, 48, msg);
+//	  snprintf(ch, 16, "buf:%-12s", aRxBuffer);
+//	  OLED_ShowString(0, 48, (char *) ch);
 	  OLED_Refresh_Gram();
 	osDelay(10);
   }
