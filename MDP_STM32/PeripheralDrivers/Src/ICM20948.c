@@ -167,7 +167,6 @@ uint8_t ICM20948_isI2cAddress2(I2C_HandleTypeDef * hi2c) {
 
 void ICM20948_init(I2C_HandleTypeDef * hi2c, uint8_t const selectI2cAddress, uint8_t const selectGyroSensitivity, uint8_t const selectAccelSensitivity) {
 	HAL_StatusTypeDef status = HAL_OK;
-	uint8_t deviceI2CAddress = (selectI2cAddress == 0)? ICM20948__I2C_SLAVE_ADDRESS_1: ICM20948__I2C_SLAVE_ADDRESS_2;
 
 	status = _ICM20948_SelectUserBank(hi2c, selectI2cAddress, USER_BANK_0);
 
