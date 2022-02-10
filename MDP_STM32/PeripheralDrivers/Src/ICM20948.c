@@ -294,6 +294,7 @@ void ICM20948_readGyroscope_Z(I2C_HandleTypeDef * hi2c, uint8_t const selectI2cA
 			break;
 	}
 }
+
 void ICM20948_readAccelerometer_allAxises(I2C_HandleTypeDef * hi2c, uint8_t const selectI2cAddress, uint8_t const selectAccelSensitivity, int16_t readings[3]) {
 	HAL_StatusTypeDef status = HAL_OK;
 	uint8_t readData[6];

@@ -113,10 +113,10 @@ uint16_t pwm_speed_R = 1200;
 uint8_t manualMode = 0;
 
 int cnt1_L, cnt1_R;
-float targetSpeed = 50;
+//float targetSpeed = 50;
 // sampling every 50ms
 // 50ms achieved by tim10: 16Mhz, prescalar: 1000, AAR: 799
-uint16_t sampling = 10L;
+//uint16_t sampling = 10L;
 //int targetTick = 33; // targetSpeed /WHEEL_LENGTH*PPR*4*sampling/1000
 
 float maxDuty = 1500;
@@ -125,16 +125,19 @@ float initDuty_R = 1500;
 float targetDist = 0;
 float positionNow = 0;
 
+
 //I2C
 int16_t gyroZ;
-int accAngle = 0;
+int16_t targetAngle = 0;
+float angleNow = 0;
 int correction = 0;
 
+// PID
 float ek = 0, ek1 = 0, ekSum = 0;
-float Kp=30, Kd=0, Ki=0;
+float Kp=0.3, Kd=0, Ki=0;
 uint8_t PIDOn = 1;
 
-
+uint8_t moveMode = 0; // 0: forward/backward 1:turn
 // debug variables
 uint8_t distStep = 10;
 /* USER CODE END 0 */
@@ -758,14 +761,15 @@ void motorMove(int const dir) {
 void motorStop() {
 	HAL_TIM_Base_Stop_IT(&htim10);
 	targetDist = 0;
+	targetAngle = 0;
 	positionNow = 0;
+	angleNow = 0;
 	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_1, 0);
 	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_2, 0);
 	pwm_speed_L = 0;
 	pwm_speed_R = 0;
 	ekSum = 0;
 	ek1 = 0;
-	accAngle = 0;
 
 }
 
@@ -786,65 +790,75 @@ int count = 0;
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	if (htim != &htim10) return;
 
-	//test travel for targetDist cm and stop
-	if (positionNow >= targetDist && !manualMode) {
-		HAL_TIM_Base_Stop_IT(&htim10); // compulsory to release control to  other tasks
-		motorTurn(74); // adjust wheel
-		motorStop();
-		acknowledgeTaskDone();
-		clickOnce = 0; // button click flag to be cleared once reach travel distance (from HAL_GPIO_EXTI_Callback)
-		return;
-	}
-
-	int cnt2_L, cnt2_R;
-	// Get current speed_L and speed_R
-	cnt2_L = __HAL_TIM_GET_COUNTER(&htim2);
-	if (__HAL_TIM_IS_TIM_COUNTING_DOWN(&htim2)) {
-		dist_dL = (cnt2_L <= cnt1_L) ? cnt1_L - cnt2_L : (65535 - cnt2_L) + cnt1_L;
-	} else {
-		dist_dL = (cnt2_L >= cnt1_L) ? cnt2_L - cnt1_L : (65535 - cnt1_L) + cnt2_L;
-	}
-
-	cnt2_R = __HAL_TIM_GET_COUNTER(&htim3);
-	if (__HAL_TIM_IS_TIM_COUNTING_DOWN(&htim3)) {
-		dist_dR = (cnt2_R <= cnt1_R) ? cnt1_R - cnt2_R : (65535 - cnt2_R) + cnt1_R;
-	} else {
-		dist_dR = (cnt2_R >= cnt1_R) ? cnt2_R - cnt1_R : (65535 - cnt1_R) + cnt2_R;
-	}
-	// 0.015242cm per encoder tick = WHEEL_LENGTH / (PPR*4)
-	positionNow += (dist_dL + dist_dR) / 2 * 0.015242;
-
-	cnt1_L = __HAL_TIM_GET_COUNTER(&htim2);
-	cnt1_R = __HAL_TIM_GET_COUNTER(&htim3);
-
-
-	dir = __HAL_TIM_IS_TIM_COUNTING_DOWN(&htim2) ? 1 : -1; // use only one of the wheel to determine car direction
-
-	// drive straight calibration
-	if (PIDOn){
+	if (moveMode) {//turn
+		if (!manualMode && (
+			(targetAngle < 0 && angleNow <= targetAngle) || (targetAngle > 0 && angleNow >= targetAngle)
+		)) { // turn stop condition
+			HAL_TIM_Base_Stop_IT(&htim10); // compulsory to release control to  other tasks
+			motorTurn(74); // adjust wheel
+			motorStop();
+			acknowledgeTaskDone();
+			clickOnce = 0; // button click flag to be cleared once reach travel distance (from HAL_GPIO_EXTI_Callback)
+			return;
+		}
+		// check angle
 		ICM20948_readGyroscope_Z(&hi2c1,0, GYRO_FULL_SCALE_1000DPS, &gyroZ);
-		accAngle += gyroZ;
-		if (accAngle != 0) {
-			ekSum += accAngle;
-			correction = Kp * accAngle + Ki * ekSum + Kd * (ek1 - accAngle);
-			ek1 = accAngle;
-			correction = correction > 600 ? 600 : (correction < -600 ? -600 : correction);
-			if (correction > 0) { // deviate to left
-				pwm_speed_L = maxDuty + correction*dir;
-				pwm_speed_R = maxDuty - correction*dir;
-			} else { // deviate to right
-				pwm_speed_L = maxDuty + correction*dir;
-				pwm_speed_R = maxDuty - correction*dir;
+		angleNow += gyroZ * 0.01; // as delta time=10ms, and the gyro value is per 1000ms, thus 10/1000
+	} else { // forward/backward
+		//test travel for targetDist cm and stop
+		if (positionNow >= targetDist && !manualMode) { // forward/backward stop condition
+			HAL_TIM_Base_Stop_IT(&htim10); // compulsory to release control to  other tasks
+			motorTurn(74); // adjust wheel
+			motorStop();
+			acknowledgeTaskDone();
+			clickOnce = 0; // button click flag to be cleared once reach travel distance (from HAL_GPIO_EXTI_Callback)
+			return;
+		}
+
+		int cnt2_L, cnt2_R;
+		// Get current speed_L and speed_R
+		cnt2_L = __HAL_TIM_GET_COUNTER(&htim2);
+		if (__HAL_TIM_IS_TIM_COUNTING_DOWN(&htim2)) {
+			dist_dL = (cnt2_L <= cnt1_L) ? cnt1_L - cnt2_L : (65535 - cnt2_L) + cnt1_L;
+		} else {
+			dist_dL = (cnt2_L >= cnt1_L) ? cnt2_L - cnt1_L : (65535 - cnt1_L) + cnt2_L;
+		}
+
+		cnt2_R = __HAL_TIM_GET_COUNTER(&htim3);
+		if (__HAL_TIM_IS_TIM_COUNTING_DOWN(&htim3)) {
+			dist_dR = (cnt2_R <= cnt1_R) ? cnt1_R - cnt2_R : (65535 - cnt2_R) + cnt1_R;
+		} else {
+			dist_dR = (cnt2_R >= cnt1_R) ? cnt2_R - cnt1_R : (65535 - cnt1_R) + cnt2_R;
+		}
+		// 0.015242cm per encoder tick = WHEEL_LENGTH / (PPR*4)
+		positionNow += (dist_dL + dist_dR) / 2 * 0.015242;
+
+		cnt1_L = __HAL_TIM_GET_COUNTER(&htim2);
+		cnt1_R = __HAL_TIM_GET_COUNTER(&htim3);
+
+		dir = __HAL_TIM_IS_TIM_COUNTING_DOWN(&htim2) ? 1 : -1; // use only one of the wheel to determine car direction
+		// drive straight calibration
+		if (PIDOn){
+			ICM20948_readGyroscope_Z(&hi2c1,0, GYRO_FULL_SCALE_1000DPS, &gyroZ);
+			angleNow += gyroZ;
+			if (angleNow != 0) {
+				ekSum += angleNow;
+				correction = Kp * angleNow + Ki * ekSum + Kd * (ek1 - angleNow);
+				ek1 = angleNow;
+				correction = correction > 600 ? 600 : (correction < -600 ? -600 : correction);
+				if (correction > 0) { // deviate to left
+					pwm_speed_L = maxDuty + correction*dir;
+					pwm_speed_R = maxDuty - correction*dir;
+				} else { // deviate to right
+					pwm_speed_L = maxDuty + correction*dir;
+					pwm_speed_R = maxDuty - correction*dir;
+				}
+				__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_1, pwm_speed_L);
+				__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_2, pwm_speed_R);
 			}
-			__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_1, pwm_speed_L);
-			__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_2, pwm_speed_R);
-			// BUFFER OVERFLOW WARNING! DO NOT USE SPRINTF WHENEVER POSSIBLE
-//			snprintf(ch, sizeof(ch), "z:%3d|acc:%-5d|pL:%-5d|pR:%-5d|corr:%-5d\r\n",gyroZ, accAngle, pwm_speed_L,pwm_speed_R, correction);
-//			snprintf(ch, sizeof(ch), "corr:%-5d\r\n", correction);
-//			snprintf(ch, sizeof(ch), "%-5d|%-5d\r\n", pwm_speed_L, pwm_speed_R);
-//			HAL_UART_Transmit(&huart3,(uint8_t *) ch, 60, 0xFFFF);
 		}
 	}
+
 
 
 //	  uint8_t ch[20];
@@ -876,6 +890,8 @@ void StartDefaultTask(void *argument)
 	//adjust steering
 	motorTurn(74);
 
+	// angle test
+
   /* Infinite loop */
   for(;;)
   {
@@ -884,6 +900,7 @@ void StartDefaultTask(void *argument)
 	 case 0: //BW
 	 case 1: //FW
 		manualMode = 0;
+		moveMode = 0;
 		targetDist = rxVal*DIST_M - DIST_C;
 		pwm_speed_L = maxDuty;
 		pwm_speed_R = maxDuty;
@@ -894,20 +911,52 @@ void StartDefaultTask(void *argument)
 		HAL_TIM_Base_Start_IT(&htim10); // straight line calibration start, this MAY block other task, need test
 		 break;
 	 case 2: //FL
+		 moveMode = 1;
+		 manualMode = 0;
+		 //		 motorTurn();
+		 pwm_speed_L = initDuty_L;
+		 pwm_speed_R = initDuty_R;
+		 motorMove(DIR_FORWARD);
 		 rxTask = 99;
-		 acknowledgeTaskDone();
+		 targetAngle = 90;
+		 HAL_TIM_Base_Start_IT(&htim10);
+//		 acknowledgeTaskDone();
 		 break;
 	 case 3: //FR
+		 moveMode = 1;
+		 manualMode = 0;
+		 //		 motorTurn();
+		 pwm_speed_L = initDuty_L;
+		 pwm_speed_R = initDuty_R;
+		 motorMove(DIR_FORWARD);
 		 rxTask = 99;
-		 acknowledgeTaskDone();
+		 targetAngle = -90;
+		 HAL_TIM_Base_Start_IT(&htim10);
+//		 acknowledgeTaskDone();
 		 break;
 	 case 4: //BL
+		 moveMode = 1;
+		 manualMode = 0;
+		 //		 motorTurn();
+		 pwm_speed_L = initDuty_L;
+		 pwm_speed_R = initDuty_R;
+		 motorMove(DIR_BACKWARD);
 		 rxTask = 99;
-		 acknowledgeTaskDone();
+		 targetAngle = -90;
+		 HAL_TIM_Base_Start_IT(&htim10);
+//		 acknowledgeTaskDone();
 		 break;
 	 case 5: //BR
+		 moveMode = 1;
+		 manualMode = 0;
+		 //		 motorTurn();
+		 pwm_speed_L = initDuty_L;
+		 pwm_speed_R = initDuty_R;
+		 motorMove(DIR_BACKWARD);
 		 rxTask = 99;
-		 acknowledgeTaskDone();
+		 targetAngle = 90;
+		 HAL_TIM_Base_Start_IT(&htim10);
+//		 acknowledgeTaskDone();
 		 break;
 	 case 6: // STOP
 		motorStop();
@@ -917,6 +966,7 @@ void StartDefaultTask(void *argument)
 	 case 7: // motorBackwardManual
 	 case 8: // motorForwardManual
 		 manualMode = 1;
+		 moveMode = 0;
 		 pwm_speed_L = maxDuty;
 		 pwm_speed_R = maxDuty;
 		 motorMove(rxTask - 7 ? DIR_FORWARD : DIR_BACKWARD);
@@ -927,8 +977,9 @@ void StartDefaultTask(void *argument)
 		HAL_TIM_Base_Start_IT(&htim10); // straight line calibration start, this MAY block other task, need test
 	 case 92: // BT, turn move backward test
 	 case 93: // FT, turn move forward test
+		 moveMode = 1;
 		 manualMode = 0;
-		 targetDist = rxVal;
+//		 targetDist = rxVal;
 		 pwm_speed_L = initDuty_L;
 		 pwm_speed_R = initDuty_R;
 		 motorMove(rxTask - 92 ? DIR_FORWARD : DIR_BACKWARD);
@@ -992,9 +1043,11 @@ void displayMsg(void *argument)
   for(;;)
   {
 	  OLED_ShowString(0, 0, (char *) rxMsg);
-	  snprintf(ch, sizeof(ch), "buf:%-5s", aRxBuffer);
-	  OLED_ShowString(0, 12, (char *) ch);
-	  snprintf(ch, sizeof(ch), "dir:%-5d", dir);
+//	  snprintf(ch, sizeof(ch), "buf:%-5s", aRxBuffer);
+//	  OLED_ShowString(0, 12, (char *) ch);
+//	  snprintf(ch, sizeof(ch), "dir:%-5d", dir);
+//	  OLED_ShowString(0, 48, (char *) ch);
+	  snprintf(ch, sizeof(ch), "angle:%-5d", (int)angleNow);
 	  OLED_ShowString(0, 48, (char *) ch);
 	  OLED_Refresh_Gram();
 	osDelay(10);
