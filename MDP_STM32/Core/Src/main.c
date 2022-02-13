@@ -23,9 +23,10 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "oled.h"
-#include "PID.h"
 #include "ICM20948.h"
 #include <stdio.h>
+#include <math.h>
+#include "ICM20948.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -85,8 +86,7 @@ void StartDefaultTask(void *argument);
 void displayMsg(void *argument);
 
 /* USER CODE BEGIN PFP */
-void motorMove(int const dir);
-void motorTurn(uint8_t amt);
+void setMotorDirection(int const dir);
 void motorStop();
 void acknowledgeTaskDone();
 
@@ -97,9 +97,25 @@ void acknowledgeTaskDone();
 uint8_t BUFFER_SIZE = 5;
 uint8_t aRxBuffer[10];
 
-uint8_t rxTask = 99; // custom default task
+typedef struct _command {
+	uint8_t index;
+	uint16_t val;
+} Command;
+
+typedef struct _commandQueue {
+	uint8_t head;
+	uint8_t tail;
+	uint8_t size;
+	Command buffer[4];
+} CommandQueue;
+
+CommandQueue cQueue;
+
+
+Command curCmd;
+//uint8_t rxTask = 99; // custom default task
 uint8_t curTask[4];
-uint16_t rxVal = 0;
+//uint16_t rxVal = 0;
 uint8_t rxMsg[16];
 
 char ch[16];
@@ -112,7 +128,7 @@ uint16_t pwm_speed_L = 1200;
 uint16_t pwm_speed_R = 1200;
 uint8_t manualMode = 0;
 
-int cnt1_L, cnt1_R;
+int lastTick_L, lastTick_R;
 //float targetSpeed = 50;
 // sampling every 50ms
 // 50ms achieved by tim10: 16Mhz, prescalar: 1000, AAR: 799
@@ -140,6 +156,14 @@ uint8_t PIDOn = 1;
 uint8_t moveMode = 0; // 0: forward/backward 1:turn
 // debug variables
 uint8_t distStep = 10;
+
+uint8_t readGyroData[2];
+uint8_t readAccelData[4];
+int16_t gyroYaw;
+float accelPitch, accelRoll;
+//float accel[2];
+float yaw = 0;
+
 /* USER CODE END 0 */
 
 /**
@@ -179,8 +203,21 @@ int main(void)
   MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
   OLED_Init();
-  ICM20948_init(&hi2c1,0,GYRO_FULL_SCALE_1000DPS,ACCEL_FULL_SCALE_8G);
-//  PID_Init(&pid_gyroZ, 0.01, 0.0, 0.0);
+  ICM20948_init(&hi2c1,0,GYRO_FULL_SCALE_1000DPS,ACCEL_FULL_SCALE_2G);
+
+  // initialise command queue
+  curCmd.index = 100;
+  curCmd.val = 0;
+
+  cQueue.head = 0;
+  cQueue.tail = 0;
+  cQueue.size = 4;
+  for (int i = 0; i < 4;i++) {
+	  Command cmd;
+	  cmd.index = 99;
+	  cmd.val = 0;
+	  cQueue.buffer[i] = cmd;
+  }
 
   HAL_UART_Receive_IT(&huart3, (uint8_t *) aRxBuffer,BUFFER_SIZE);
 
@@ -679,47 +716,64 @@ static void MX_GPIO_Init(void)
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef * huart) {
 	// prevent unused argument(s) compilation warning
 	UNUSED(huart);
+	int val;
 
-	snprintf(curTask, sizeof(curTask), "%c%c%c%c", aRxBuffer[0],aRxBuffer[1],aRxBuffer[2],aRxBuffer[3]);
-	snprintf(rxMsg, sizeof(rxMsg), "doing:%-10s", curTask);
-	rxTask = 99;
+//	snprintf(curTask, sizeof(curTask), "%c%c%c%c", aRxBuffer[0],aRxBuffer[1],aRxBuffer[2],aRxBuffer[3]);
+//	snprintf(rxMsg, sizeof(rxMsg), "doing:%-10s", curTask);
+
+	val = (aRxBuffer[2] - 48) * 10 + (aRxBuffer[3] - 48);
+	if (aRxBuffer[1] >= '0' && aRxBuffer[1] <= '9') val += (aRxBuffer[1] - 48) * 100;
+
 	manualMode = 0;
-	//getTaskIndex(aRxBuffer[0], aRxBuffer[1]);
-	if (aRxBuffer[0] == 'B' && aRxBuffer[1] != 'L' && aRxBuffer[1] != 'R') {
-		if (aRxBuffer[2] == '-' && aRxBuffer[3] == '-') manualMode = 1;
-		rxTask = 0; // manual backward
-	}
-	else if (aRxBuffer[0] == 'F' && aRxBuffer[1] != 'L' && aRxBuffer[1] != 'R') {
-		if (aRxBuffer[2] == '-' && aRxBuffer[3] == '-') manualMode = 1;
-		rxTask = 1; // manual forward
-	}
-	else if (aRxBuffer[0] == 'F' && aRxBuffer[1] == 'L') rxTask = 2; // forward left: turn left by 90 degree with 20cm displacement
-	else if (aRxBuffer[0] == 'F' && aRxBuffer[1] == 'R') rxTask = 3;	// forward right: turn right by 90 degree with 20cm displacement
-	else if (aRxBuffer[0] == 'B' && aRxBuffer[1] == 'L') rxTask = 4; // backward left
-	else if (aRxBuffer[0] == 'B' && aRxBuffer[1] == 'R') rxTask = 5; // backward right
-	else if (aRxBuffer[0] == 'S' && aRxBuffer[1] == 'T') rxTask = 6; // stop
-	else if (aRxBuffer[0] == 'A') rxTask = 88; // anti-clockwise rotation with variable
-	else if (aRxBuffer[0] == 'C') rxTask = 89; // clockwise rotation with variable
-	else if (aRxBuffer[0] == 'R' && aRxBuffer[1] == 'N') rxTask = 92; // change target angle (-ve)
-	else if (aRxBuffer[0] == 'R' && aRxBuffer[1] == 'P') rxTask = 93; // change target angle (+ve)
-	else if (aRxBuffer[0] == 'D' && aRxBuffer[1] == 'D') rxTask = 94; // set target distance
-	else if (aRxBuffer[0] == 'P' && aRxBuffer[1] == 'P') rxTask = 95; // toggle pid controller
-	else if (aRxBuffer[0] == 'D' && aRxBuffer[1] == 'L') rxTask = 96; // left duty test
-	else if (aRxBuffer[0] == 'D' && aRxBuffer[1] == 'R') rxTask = 97; // right duty test
-	else if (aRxBuffer[0] == 'Q' && aRxBuffer[1] == 'Q') rxTask = 98; // steering test
 
-	rxVal = (aRxBuffer[2] - 48) * 10 + (aRxBuffer[3] - 48);
-	if (aRxBuffer[1] >= '0' && aRxBuffer[1] <= '9') rxVal += (aRxBuffer[1] - 48) * 100;
-//		char ch[10];
-//		sprintf(ch, "rxTask:%d|rxVal:%d\n",rxTask,rxVal);
-//		HAL_UART_Transmit(&huart3, (uint8_t *) ch, 17, 0xFFFF);
+	if (aRxBuffer[0] == 'S' && aRxBuffer[1] == 'T') __ADD_COMMAND(cQueue, 0, 0); // stop
+	else if (aRxBuffer[0] == 'B' && aRxBuffer[1] != 'L' && aRxBuffer[1] != 'R') { //BW
+		if (aRxBuffer[2] == '-' && aRxBuffer[3] == '-') manualMode = 1;
+		__ADD_COMMAND(cQueue, 1, val);
+	}
+	else if (aRxBuffer[0] == 'F' && aRxBuffer[1] != 'L' && aRxBuffer[1] != 'R') { //FW
+		if (aRxBuffer[2] == '-' && aRxBuffer[3] == '-') manualMode = 1;
+		__ADD_COMMAND(cQueue, 2, val);
+	}
+	else if (aRxBuffer[0] == 'F' && aRxBuffer[1] == 'L') { // FL
+		 __ADD_COMMAND(cQueue, 1, 3); // BW03
+		 __ADD_COMMAND(cQueue, 3, 0); // FL00
+		 __ADD_COMMAND(cQueue, 1, 5); // BW05
+	}
+	else if (aRxBuffer[0] == 'F' && aRxBuffer[1] == 'R') { // FR
+		 __ADD_COMMAND(cQueue, 1, 3); // BW03
+		 __ADD_COMMAND(cQueue, 4, 0); // FR00
+		 __ADD_COMMAND(cQueue, 1, 6); // BW06
+//		task = 4;	// forward right: turn right by 90 degree with 20cm displacement
+	}
+	else if (aRxBuffer[0] == 'B' && aRxBuffer[1] == 'L') {
+		__ADD_COMMAND(cQueue, 2, 6); // FW06
+		__ADD_COMMAND(cQueue, 5, 0); // BL00
+		__ADD_COMMAND(cQueue, 2, 4); // FW04
+//		task = 5; // backward left
+	}
+	else if (aRxBuffer[0] == 'B' && aRxBuffer[1] == 'R') {
+		__ADD_COMMAND(cQueue, 2, 6); // FW06
+		__ADD_COMMAND(cQueue, 6, 0); // BR00
+//		task = 6; // backward right
+	}
+//	else if (aRxBuffer[0] == 'S' && aRxBuffer[1] == 'T') task = 6; // stop
+	else if (aRxBuffer[0] == 'A') __ADD_COMMAND(cQueue, 88, val); //task = 88; // anti-clockwise rotation with variable
+	else if (aRxBuffer[0] == 'C') __ADD_COMMAND(cQueue, 88, val); //task = 89; // clockwise rotation with variable
+	else if (aRxBuffer[0] == 'R' && aRxBuffer[1] == 'N') __ADD_COMMAND(cQueue, 92, val); //task = 92; // change target angle (-ve)
+	else if (aRxBuffer[0] == 'R' && aRxBuffer[1] == 'P') __ADD_COMMAND(cQueue, 93, val);//task = 93; // change target angle (+ve)
+	else if (aRxBuffer[0] == 'D' && aRxBuffer[1] == 'D') __ADD_COMMAND(cQueue, 94, val);//task = 94; // set target distance
+	else if (aRxBuffer[0] == 'P' && aRxBuffer[1] == 'P') __ADD_COMMAND(cQueue, 95, val);//task = 95; // toggle pid controller
+	else if (aRxBuffer[0] == 'D' && aRxBuffer[1] == 'L') __ADD_COMMAND(cQueue, 96, val);//task = 96; // left duty test
+	else if (aRxBuffer[0] == 'D' && aRxBuffer[1] == 'R') __ADD_COMMAND(cQueue, 97, val);//task = 97; // right duty test
+	else if (aRxBuffer[0] == 'Q' && aRxBuffer[1] == 'Q') __ADD_COMMAND(cQueue, 98, val);//task = 98; // steering test
 
+
+	__READ_COMMAND(cQueue, curCmd);
 
 	// clear aRx buffer
 	__HAL_UART_FLUSH_DRREGISTER(&huart3);
 	HAL_UART_Receive_IT(&huart3, aRxBuffer, BUFFER_SIZE);
-	//HAL_UART_Transmit(&huart3, (uint8_t *) aTxBuffer, BUFFER_SIZE);
-	//HAL_UART_Transmit(&huart3, (uint8_t *)  aTxBuffer, BUFFER_SIZE, 0xFFFF);
 }
 
 int clickOnce = 0;
@@ -728,73 +782,45 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 	if (clickOnce) return;
 	if (GPIO_Pin == SW1_Pin) {
 		clickOnce = 1;
-		manualMode = 0;
-//		moveMode = 0;
-//		PIDOn = !PIDOn;
-//		// FR 20cm test
-//		targetDist = 120 * DIST_M - DIST_C;
-//		pwm_speed_L = 1200;
-//		pwm_speed_R = 1200;
-//		motorMove(DIR_FORWARD);
-//		cnt1_L = __HAL_TIM_GET_COUNTER(&htim2);
-//		cnt1_R = __HAL_TIM_GET_COUNTER(&htim3);
-//		HAL_TIM_Base_Start_IT(&htim10);
+		manualMode = 1;
 
-		moveMode = 1;
-		targetAngle = targetRot - 2.5 * targetRot/4.5;
-		targetRot = targetRot == 360 ? 90 : targetRot + 90;
-		pwm_speed_L = 600;
-		pwm_speed_R = 1200;
-		motorTurn(50);
-		motorMove(DIR_FORWARD);
+		// test multi-step command
+//		__ADD_COMMAND(cQueue, 1, 3); // BW03
+//		__ADD_COMMAND(cQueue, 3, 0); // FL00
+//		__ADD_COMMAND(cQueue, 1, 5); // BW05
+//
+//		__READ_COMMAND(cQueue, curCmd);
+
+		// test gyro+accel
 		HAL_TIM_Base_Start_IT(&htim10);
 	}
 
 }
 
-void motorTurn(uint8_t amt) {
-	// 16Mhz, prescaler: 160, period: 1000
-	// extreme left: 95, center: 145, extreme right: 245
-	//htim1.Instance->CCR4 = (amt > 245) ? 245 : ((amt < 95) ? 95 : amt);
-
-	// 16Mhz, prescaler: 320, period: 1000
-	//extreme left: 50, center: 74, extreme right:115
-	turn = (amt > 115) ? 115 : ((amt < 50) ? 50 : amt);
-	htim1.Instance->CCR4 = turn;
-}
-
-void motorMove(int const dir) {
+void setMotorDirection(int const dir) {
 	HAL_GPIO_WritePin(GPIOA, AIN2_Pin, (dir ? GPIO_PIN_RESET : GPIO_PIN_SET));
 	HAL_GPIO_WritePin(GPIOA, AIN1_Pin, (dir ? GPIO_PIN_SET: GPIO_PIN_RESET));
 	// right wheel: clockwise (forward)
 	HAL_GPIO_WritePin(GPIOA, BIN2_Pin, (dir ? GPIO_PIN_RESET: GPIO_PIN_SET));
 	HAL_GPIO_WritePin(GPIOA, BIN1_Pin, (dir ? GPIO_PIN_SET: GPIO_PIN_RESET));
-	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_1, pwm_speed_L);
-	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_2, pwm_speed_R);
 }
 
 void motorStop() {
 	HAL_TIM_Base_Stop_IT(&htim10);
-	targetDist = 0;
-	targetAngle = 0;
-	positionNow = 0;
-	angleNow = 0;
-	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_1, 0);
-	__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_2, 0);
-	pwm_speed_L = 0;
-	pwm_speed_R = 0;
-	ekSum = 0;
-	ek1 = 0;
+	targetDist = 0; targetAngle = 0;
+	positionNow = 0; angleNow = 0;
+	__SET_MOTOR_DUTY(&htim8, 0, 0);
+	ekSum = 0; ek1 = 0;
 
 }
 
 void acknowledgeTaskDone() {
 	//acknowledge rpi task done
-//	uint8_t ch[7];
 	snprintf(rxMsg, sizeof(rxMsg), "done:%-11s", curTask);
 	snprintf(ch, sizeof(ch), "ACK|%c%c\n", curTask[0], curTask[1]);
 	HAL_UART_Transmit(&huart3, (uint8_t *) ch, 7, 0xFFFF);
-	rxVal = 0;
+//	rxTask = 100;
+//	rxVal = 0;
 }
 
 // TIM10 timer interrupt evoked every 10ms
@@ -802,74 +828,79 @@ void acknowledgeTaskDone() {
 // periodically check motor moved distance and speed
 // this ISR block RTOS task when running, hence, must disable it whenever it is not used.
 int count = 0;
+char temp[20];
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	if (htim != &htim10) return;
+
+	//complimentary filter
+	_ICM20948_BrustRead(&hi2c1, 0, ICM20948__USER_BANK_0__GYRO_ZOUT_H__REGISTER, 2, readGyroData);
+	_ICM20948_BrustRead(&hi2c1, 0, ICM20948__USER_BANK_0__ACCEL_XOUT_H__REGISTER, 4, readAccelData);
+
+	gyroYaw = readGyroData[0] << 8 | readGyroData[1];
+	gyroYaw /= GRYO_SENSITIVITY_SCALE_FACTOR_1000DPS;
+	yaw += gyroYaw * 0.01;
+	accelPitch = readAccelData[0] << 8 | readAccelData[1];
+	accelPitch /= ACCEL_SENSITIVITY_SCALE_FACTOR_2G;
+	accelRoll = readAccelData[2] << 8 | readAccelData[3];
+	accelRoll /= ACCEL_SENSITIVITY_SCALE_FACTOR_2G;
+
+	angleNow = 0.98 * yaw + 0.02 * atan2f(accelPitch, accelRoll) * 57.29577951;
+
 
 	if (moveMode) {//turn
 		if (!manualMode && (
 			(targetAngle < 0 && angleNow <= targetAngle) || (targetAngle > 0 && angleNow >= targetAngle)
 		)) { // turn stop condition
-			HAL_TIM_Base_Stop_IT(&htim10); // compulsory to release control to  other tasks
-			motorTurn(74); // adjust wheel
+			__RESET_SERVO_TURN(&htim1);
 			motorStop();
-			acknowledgeTaskDone();
+
+			if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
+				acknowledgeTaskDone();
+				curCmd.index = 100;
+			} else {
+				 __READ_COMMAND(cQueue, curCmd);
+			}
 			clickOnce = 0; // button click flag to be cleared once reach travel distance (from HAL_GPIO_EXTI_Callback)
 			return;
 		}
 		// check angle
-		ICM20948_readGyroscope_Z(&hi2c1,0, GYRO_FULL_SCALE_1000DPS, &gyroZ);
-		angleNow += gyroZ * 0.01; // as delta time=10ms, and the gyro value is per 1000ms, thus 10/1000
+//		ICM20948_readGyroscope_Z(&hi2c1,0, GYRO_FULL_SCALE_1000DPS, &gyroZ);
+//		angleNow += gyroZ * 0.01; // as delta time=10ms, and the gyro value is per 1000ms, thus 10/1000
 	} else { // forward/backward
 		//test travel for targetDist cm and stop
-		if (positionNow >= targetDist && !manualMode) { // forward/backward stop condition
-			HAL_TIM_Base_Stop_IT(&htim10); // compulsory to release control to  other tasks
-			motorTurn(74); // adjust wheel
+		if (!manualMode && positionNow >= targetDist) { // forward/backward stop condition
+			__RESET_SERVO_TURN(&htim1);
 			motorStop();
-			acknowledgeTaskDone();
+
+			if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
+				acknowledgeTaskDone();
+				curCmd.index = 100;
+			} else {
+				__READ_COMMAND(cQueue, curCmd);
+			}
 			clickOnce = 0; // button click flag to be cleared once reach travel distance (from HAL_GPIO_EXTI_Callback)
 			return;
 		}
 
-		int cnt2_L, cnt2_R;
-		// Get current speed_L and speed_R
-		cnt2_L = __HAL_TIM_GET_COUNTER(&htim2);
-		if (__HAL_TIM_IS_TIM_COUNTING_DOWN(&htim2)) {
-			dist_dL = (cnt2_L <= cnt1_L) ? cnt1_L - cnt2_L : (65535 - cnt2_L) + cnt1_L;
-		} else {
-			dist_dL = (cnt2_L >= cnt1_L) ? cnt2_L - cnt1_L : (65535 - cnt1_L) + cnt2_L;
-		}
+		// Get moved distance of left/right wheels since last tick
+		__GET_ENCODER_TICK_DELTA(&htim2, lastTick_L, dist_dL);
+		__GET_ENCODER_TICK_DELTA(&htim3, lastTick_R, dist_dR);
+		__SET_ENCODER_LAST_TICKS(&htim2, lastTick_L, &htim3, lastTick_R);
 
-		cnt2_R = __HAL_TIM_GET_COUNTER(&htim3);
-		if (__HAL_TIM_IS_TIM_COUNTING_DOWN(&htim3)) {
-			dist_dR = (cnt2_R <= cnt1_R) ? cnt1_R - cnt2_R : (65535 - cnt2_R) + cnt1_R;
-		} else {
-			dist_dR = (cnt2_R >= cnt1_R) ? cnt2_R - cnt1_R : (65535 - cnt1_R) + cnt2_R;
-		}
 		// 0.015242cm per encoder tick = WHEEL_LENGTH / (PPR*4)
 		positionNow += (dist_dL + dist_dR) / 2 * 0.015242;
-
-		cnt1_L = __HAL_TIM_GET_COUNTER(&htim2);
-		cnt1_R = __HAL_TIM_GET_COUNTER(&htim3);
 
 		dir = __HAL_TIM_IS_TIM_COUNTING_DOWN(&htim2) ? 1 : -1; // use only one of the wheel to determine car direction
 		// drive straight calibration
 		if (PIDOn){
-			ICM20948_readGyroscope_Z(&hi2c1,0, GYRO_FULL_SCALE_1000DPS, &gyroZ);
-			angleNow += gyroZ*0.01;
+//			ICM20948_readGyroscope_Z(&hi2c1,0, GYRO_FULL_SCALE_1000DPS, &gyroZ);
+//			angleNow += gyroZ*0.01;
 			if (angleNow != 0) {
 				ekSum += angleNow;
 				correction = Kp * angleNow + Ki * ekSum + Kd * (ek1 - angleNow);
 				ek1 = angleNow;
 				correction = correction > 600 ? 600 : (correction < -600 ? -600 : correction);
-				if (correction > 0) { // deviate to left
-					pwm_speed_L = maxDuty + correction*dir;
-					pwm_speed_R = maxDuty - correction*dir;
-				} else { // deviate to right
-					pwm_speed_L = maxDuty + correction*dir;
-					pwm_speed_R = maxDuty - correction*dir;
-				}
-				__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_1, pwm_speed_L);
-				__HAL_TIM_SetCompare(&htim8, TIM_CHANNEL_2, pwm_speed_R);
+				__SET_MOTOR_DUTY(&htim8, maxDuty + correction*dir, maxDuty - correction*dir);
 			}
 		}
 	}
@@ -903,7 +934,7 @@ void StartDefaultTask(void *argument)
 	HAL_TIM_Encoder_Start(&htim3, TIM_CHANNEL_ALL);
 
 	//adjust steering
-	motorTurn(74);
+	__RESET_SERVO_TURN(&htim1);
 
 	// angle test
 
@@ -911,119 +942,136 @@ void StartDefaultTask(void *argument)
   for(;;)
   {
 	  // FW, BW handle acknowledgeTaskDone() under HAL_TIM_PeriodElapsedCallback
-	 switch(rxTask) {
-	 case 0: //BW
-	 case 1: //FW
+	 switch(curCmd.index) {
+	 case 0: // STOP
+		motorStop();
+		if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
+			acknowledgeTaskDone();
+			curCmd.index = 100;
+		} else {
+			__READ_COMMAND(cQueue, curCmd);
+		}
+		 break;
+	 case 1: //BW
+	 case 2: //FW
 		moveMode = 0;
-		targetDist = manualMode ? 0 : (rxVal*DIST_M - DIST_C);
-		pwm_speed_L = maxDuty;
-		pwm_speed_R = maxDuty;
-		motorMove(rxTask ? DIR_FORWARD : DIR_BACKWARD);
-		cnt1_L = __HAL_TIM_GET_COUNTER(&htim2);
-		cnt1_R = __HAL_TIM_GET_COUNTER(&htim3);
-		if (manualMode) acknowledgeTaskDone();
-		rxTask = 99;
+		targetDist = manualMode ? 0 : (curCmd.val * DIST_M - DIST_C);
+		__SET_MOTOR_DUTY(&htim8, maxDuty, maxDuty);
+		setMotorDirection(curCmd.index - 1 ? DIR_FORWARD : DIR_BACKWARD);
+
+		if (manualMode) {
+			if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
+				acknowledgeTaskDone();
+				curCmd.index = 100;
+			} else {
+				__READ_COMMAND(cQueue, curCmd);
+			}
+		} else {
+			curCmd.index = 99;
+		}
+		__SET_ENCODER_LAST_TICKS(&htim2, lastTick_L, &htim3, lastTick_R);
 		HAL_TIM_Base_Start_IT(&htim10); // straight line calibration start, this MAY block other task, need test
 		 break;
-	 case 2: //FL
+	 case 3: //FL
 		 moveMode = 1;
-		 //		 motorTurn();
-		 pwm_speed_L = initDuty_L;
-		 pwm_speed_R = initDuty_R;
-		 motorMove(DIR_FORWARD);
-		 rxTask = 99;
-//		 targetAngle = 85;
+		 __SET_SERVO_TURN(&htim1, 50);
+		 initDuty_L = 300;
+		 initDuty_R = 1800;
+		 targetAngle = 87;
+		 __SET_MOTOR_DUTY(&htim8, initDuty_L, initDuty_R);
+		 setMotorDirection(DIR_FORWARD);
+		 curCmd.index = 99;
 		 HAL_TIM_Base_Start_IT(&htim10);
 //		 acknowledgeTaskDone();
 		 break;
-	 case 3: //FR
+	 case 4: //FR
 		 moveMode = 1;
 		 //		 motorTurn();
-		 pwm_speed_L = initDuty_L;
-		 pwm_speed_R = initDuty_R;
-		 motorMove(DIR_FORWARD);
-		 rxTask = 99;
-//		 targetAngle = -85;
+		 __SET_SERVO_TURN(&htim1, 115);
+		 initDuty_L = 2300;
+		 initDuty_R = 300;
+		 targetAngle = -84;
+		 __SET_MOTOR_DUTY(&htim8, initDuty_L, initDuty_R);
+		 setMotorDirection(DIR_FORWARD);
+		 curCmd.index = 99;
 		 HAL_TIM_Base_Start_IT(&htim10);
 //		 acknowledgeTaskDone();
 		 break;
-	 case 4: //BL
+	 case 5: //BL
 		 moveMode = 1;
-		 //		 motorTurn();
-		 pwm_speed_L = initDuty_L;
-		 pwm_speed_R = initDuty_R;
-		 motorMove(DIR_BACKWARD);
-		 rxTask = 99;
-//		 targetAngle = -85;
+		 __SET_SERVO_TURN(&htim1, 50);
+		 initDuty_L = 300;
+		 initDuty_R = 1700;
+		 targetAngle = -87;
+		 __SET_MOTOR_DUTY(&htim8, initDuty_L, initDuty_L);
+		 setMotorDirection(DIR_BACKWARD);
+		 curCmd.index = 99;
 		 HAL_TIM_Base_Start_IT(&htim10);
-//		 acknowledgeTaskDone();
 		 break;
-	 case 5: //BR
+	 case 6: //BR
 		 moveMode = 1;
-		 //		 motorTurn();
-		 pwm_speed_L = initDuty_L;
-		 pwm_speed_R = initDuty_R;
-		 motorMove(DIR_BACKWARD);
-		 rxTask = 99;
-//		 targetAngle = 85;
+		 __SET_SERVO_TURN(&htim1, 115);
+		 initDuty_L = 2200;
+		 initDuty_R = 300;
+		 targetAngle = 85;
+		 __SET_MOTOR_DUTY(&htim8, initDuty_L, initDuty_L);
+		 setMotorDirection(DIR_BACKWARD);
+		 curCmd.index = 99;
 		 HAL_TIM_Base_Start_IT(&htim10);
-//		 acknowledgeTaskDone();
-		 break;
-	 case 6: // STOP
-		motorStop();
-		rxTask = 99;
-		 acknowledgeTaskDone();
 		 break;
 	 case 88: // Axxx, rotate left by xxx degree
 	 case 89: // Cxxx, rotate right by xxx degree
 		 manualMode = 0;
 		 moveMode = 1;
-		 pwm_speed_L = maxDuty;
-		 pwm_speed_R = maxDuty;
-		 motorMove(DIR_FORWARD);
-		 motorTurn(rxTask - 88 ? 115 : 50);
-		 targetAngle = (rxTask - 88 ? -1 : 1) * (rxVal - 5); // -5 for offset
-		 rxTask = 99;
+
+		 __SET_SERVO_TURN_MAX(&htim1, curCmd.index - 88);
+		 __SET_MOTOR_DUTY(&htim8, maxDuty, maxDuty);
+		 targetAngle = (curCmd.index - 88 ? -1 : 1) * (curCmd.val - 5); // -5 for offset
+		 setMotorDirection(DIR_FORWARD);
+		 curCmd.index = 99;
 		 HAL_TIM_Base_Start_IT(&htim10);
 		 break;
 	 case 92: // RN, change stop angle -ve
 	 case 93: // RP, +ve
-		 targetAngle = rxVal * (rxTask - 90 ? 1 : -1);
-		 rxTask = 99;
+		 targetAngle = curCmd.val * (curCmd.index - 92 ? 1 : -1);
+		 curCmd.index = 100;
 		 acknowledgeTaskDone();
 		 break;
 	 case 94: // DD set target distance
-		 targetDist = rxVal;
-		 rxTask = 99;
+		 targetDist = curCmd.val;
+		 curCmd.index = 100;
 		 acknowledgeTaskDone();
 		 break;
 	 case 95: // enable/disable pid
-		 PIDOn = rxVal;
-		 rxTask = 99;
+		 PIDOn = curCmd.val;
+		 curCmd.index = 100;
 		 acknowledgeTaskDone();
 		 break;
 	 case 96: // DL, left duty test
-		 initDuty_L = rxVal * 100;
-		 rxTask = 99;
+		 initDuty_L = curCmd.val * 100;
+		 curCmd.index = 100;
 		 acknowledgeTaskDone();
 		 break;
 	 case 97: // DR, right duty test
-		 initDuty_R = rxVal * 100;
-		 rxTask = 99;
+		 initDuty_R = curCmd.val * 100;
+		 curCmd.index = 100;
 		 acknowledgeTaskDone();
 		 break;
 	 case 98: // QQ, steering test
 		 // angle 50-74-115
 		 // argument 0-65
-		 motorTurn(50 + rxVal);
-		 rxTask = 99;
+		 __SET_SERVO_TURN(&htim1, SERVO_LEFT_MAX + curCmd.val);
+		 curCmd.index = 100;
 		 acknowledgeTaskDone();
 		 break;
 	 case 99:
 		 // wait for current command finish
 		 break;
+	 case 100:
+		 // no outstanding command to be executed, idling here
+		 break;
 	 default:
-		 rxTask = 99;
+//		 curCmd.index = 99;
 		 break;
 	 }
 
@@ -1047,6 +1095,7 @@ void displayMsg(void *argument)
   for(;;)
   {
 	  OLED_ShowString(0, 0, (char *) rxMsg);
+	//  OLED_ShowString(0, 12, (char *) curCmd.index);
 //	  snprintf(ch, sizeof(ch), "buf:%-5s", aRxBuffer);
 //	  OLED_ShowString(0, 12, (char *) ch);
 //	  snprintf(ch, sizeof(ch), "dir:%-5d", dir);

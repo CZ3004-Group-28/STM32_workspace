@@ -1,5 +1,6 @@
 
 #include "ICM20948.h"
+#include <math.h>
 
 #define X 0
 #define Y 1
@@ -17,23 +18,12 @@
 
 #define ONE_BYTE 8
 
-#define GRYO_SENSITIVITY_SCALE_FACTOR_250DPS 131
-#define GRYO_SENSITIVITY_SCALE_FACTOR_500DPS 65.5
-#define GRYO_SENSITIVITY_SCALE_FACTOR_1000DPS 32.8
-#define GRYO_SENSITIVITY_SCALE_FACTOR_2000DPS 16.4
-
-#define ACCEL_SENSITIVITY_SCALE_FACTOR_2G 16384
-#define ACCEL_SENSITIVITY_SCALE_FACTOR_4G 8192
-#define ACCEL_SENSITIVITY_SCALE_FACTOR_8G 4096
-#define ACCEL_SENSITIVITY_SCALE_FACTOR_16G 2048
-
-#define MAG_SENSITIVITY_SCALE_FACTOR 0.15
-
 #define ICM20948_RESET 0x80
 #define ICM20948_DISABLE_SENSORS 0x00
 #define ICM20948_ENABLE_SENSORS 0x3F
 #define ICM20948_AUTO_SELECT_CLOCK 0x01
 
+uint8_t readGyroDataZ[2];
 
 HAL_StatusTypeDef _ICM20948_SelectUserBank(I2C_HandleTypeDef * hi2c, uint8_t const selectI2cAddress, int userBankNum) {
 	HAL_StatusTypeDef status = HAL_OK;
@@ -99,51 +89,6 @@ HAL_StatusTypeDef _ICM20948_BrustRead(I2C_HandleTypeDef * hi2c, uint8_t const se
 
 	return status;
 }
-
-// HAL_StatusTypeDef _AK09918_WriteByte(I2C_HandleTypeDef * hi2c, uint8_t const registerAddress, uint8_t writeData) {
-// 	HAL_StatusTypeDef status = HAL_OK;
-
-// 	status = HAL_I2C_Mem_Write(
-// 			hi2c,
-// 			AK09918__I2C_SLAVE_ADDRESS << 1,
-// 			registerAddress,
-// 			I2C_MEMADD_SIZE_8BIT,
-// 			&writeData,
-// 			I2C_MEMADD_SIZE_8BIT,
-// 			10);
-
-// 	return status;
-// }
-
-// HAL_StatusTypeDef _AK09918_ReadByte(I2C_HandleTypeDef * hi2c, uint8_t const registerAddress, uint8_t * readData) {
-// 	HAL_StatusTypeDef status = HAL_OK;
-
-// 	status = HAL_I2C_Mem_Write(
-// 			hi2c,
-// 			AK09918__I2C_SLAVE_ADDRESS << 1,
-// 			registerAddress,
-// 			I2C_MEMADD_SIZE_8BIT,
-// 			readData,
-// 			I2C_MEMADD_SIZE_8BIT,
-// 			10);
-
-// 	return status;
-// }
-
-// HAL_StatusTypeDef _AK09918_BrustRead(I2C_HandleTypeDef * hi2c, uint8_t const startAddress, uint16_t const amountOfRegistersToRead, uint8_t * readData) {
-// 	HAL_StatusTypeDef status = HAL_OK;
-
-// 	status = HAL_I2C_Mem_Read(
-// 			hi2c,
-// 			AK09918__I2C_SLAVE_ADDRESS << 1,
-// 			startAddress,
-// 			I2C_MEMADD_SIZE_8BIT,
-// 			readData,
-// 			amountOfRegistersToRead,
-// 			10);
-
-// 	return status;
-// }
 
 uint8_t ICM20948_isI2cAddress1(I2C_HandleTypeDef * hi2c) {
 	HAL_StatusTypeDef addressStatus = HAL_I2C_IsDeviceReady(hi2c, ICM20948__I2C_SLAVE_ADDRESS_1 << 1, 2, 10);
@@ -234,12 +179,13 @@ void ICM20948_init(I2C_HandleTypeDef * hi2c, uint8_t const selectI2cAddress, uin
 }
 
 void ICM20948_readGyroscope_allAxises(I2C_HandleTypeDef * hi2c, uint8_t const selectI2cAddress, uint8_t const selectGyroSensitivity, int16_t readings[3]) {
-	HAL_StatusTypeDef status = HAL_OK;
+//	HAL_StatusTypeDef status = HAL_OK;
 	uint8_t readData[6];
 
-	status = _ICM20948_SelectUserBank(hi2c, selectI2cAddress, USER_BANK_0);
+//	status = _ICM20948_SelectUserBank(hi2c, selectI2cAddress, USER_BANK_0);
 
-	status = _ICM20948_BrustRead(hi2c, selectI2cAddress, ICM20948__USER_BANK_0__GYRO_XOUT_H__REGISTER, 6, readData);
+//	status =
+	_ICM20948_BrustRead(hi2c, selectI2cAddress, ICM20948__USER_BANK_0__GYRO_XOUT_H__REGISTER, 6, readData);
 
 	readings[X] = readData[X_HIGH_BYTE]<<8|readData[X_LOW_BYTE];
 	readings[Y] = readData[Y_HIGH_BYTE]<<8|readData[Y_LOW_BYTE];
@@ -270,38 +216,24 @@ void ICM20948_readGyroscope_allAxises(I2C_HandleTypeDef * hi2c, uint8_t const se
 }
 
 void ICM20948_readGyroscope_Z(I2C_HandleTypeDef * hi2c, uint8_t const selectI2cAddress, uint8_t const selectGyroSensitivity, int16_t *gyroZ) {
-	HAL_StatusTypeDef status = HAL_OK;
-	uint8_t readData[2];
+//	HAL_StatusTypeDef status = HAL_OK;
+//	status =
+//	_ICM20948_SelectUserBank(hi2c, selectI2cAddress, USER_BANK_0);  no need, already at bank 0
+//	status =
+	_ICM20948_BrustRead(hi2c, selectI2cAddress, ICM20948__USER_BANK_0__GYRO_ZOUT_H__REGISTER, 2, readGyroDataZ);
 
-	status = _ICM20948_SelectUserBank(hi2c, selectI2cAddress, USER_BANK_0);
-
-	status = _ICM20948_BrustRead(hi2c, selectI2cAddress, ICM20948__USER_BANK_0__GYRO_ZOUT_H__REGISTER, 2, readData);
-
-	*gyroZ = readData[0]<<8|readData[1];
-
-	switch (selectGyroSensitivity) {
-		case GYRO_FULL_SCALE_250DPS:
-			*gyroZ /= GRYO_SENSITIVITY_SCALE_FACTOR_250DPS;
-			break;
-		case GYRO_FULL_SCALE_500DPS:
-			*gyroZ /= GRYO_SENSITIVITY_SCALE_FACTOR_500DPS;
-			break;
-		case GYRO_FULL_SCALE_1000DPS:
-			*gyroZ /= GRYO_SENSITIVITY_SCALE_FACTOR_1000DPS;
-			break;
-		case GYRO_FULL_SCALE_2000DPS:
-			*gyroZ /= GRYO_SENSITIVITY_SCALE_FACTOR_2000DPS;
-			break;
-	}
+	*gyroZ = readGyroDataZ[0]<<8 | readGyroDataZ[1];
+	*gyroZ /= GRYO_SENSITIVITY_SCALE_FACTOR_1000DPS;
 }
 
 void ICM20948_readAccelerometer_allAxises(I2C_HandleTypeDef * hi2c, uint8_t const selectI2cAddress, uint8_t const selectAccelSensitivity, int16_t readings[3]) {
-	HAL_StatusTypeDef status = HAL_OK;
+//	HAL_StatusTypeDef status = HAL_OK;
 	uint8_t readData[6];
 
-	status = _ICM20948_SelectUserBank(hi2c, selectI2cAddress, USER_BANK_0);
+//	status = _ICM20948_SelectUserBank(hi2c, selectI2cAddress, USER_BANK_0);
 
-	status = _ICM20948_BrustRead(hi2c, selectI2cAddress, ICM20948__USER_BANK_0__ACCEL_XOUT_H__REGISTER, 6, readData);
+	//status =
+	_ICM20948_BrustRead(hi2c, selectI2cAddress, ICM20948__USER_BANK_0__ACCEL_XOUT_H__REGISTER, 6, readData);
 
 	readings[X] = readData[X_HIGH_BYTE]<<8|readData[X_LOW_BYTE];
 	readings[Y] = readData[Y_HIGH_BYTE]<<8|readData[Y_LOW_BYTE];
@@ -356,3 +288,4 @@ void ICM20948_readMagnetometer_allAxises(I2C_HandleTypeDef * hi2c, int16_t readi
 	readings[Y] *= MAG_SENSITIVITY_SCALE_FACTOR;
 	readings[Z] *= MAG_SENSITIVITY_SCALE_FACTOR;
 }
+
