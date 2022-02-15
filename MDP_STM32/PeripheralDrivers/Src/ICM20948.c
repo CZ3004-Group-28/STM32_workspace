@@ -1,6 +1,5 @@
 
 #include "ICM20948.h"
-#include <math.h>
 
 #define X 0
 #define Y 1

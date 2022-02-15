@@ -41,12 +41,84 @@ extern "C" {
 
 /* Exported constants --------------------------------------------------------*/
 /* USER CODE BEGIN EC */
-
 /* USER CODE END EC */
 
 /* Exported macro ------------------------------------------------------------*/
 /* USER CODE BEGIN EM */
+#define WHEEL_LENGTH 20.12
+#define PPR 330
+// distance calibration params
+#define DIST_M 1.133145885
+#define DIST_C 2.419816382
+#define DIR_FORWARD 1
+#define DIR_BACKWARD 0
+#define SERVO_LEFT_MAX 50
+#define SERVO_MIDDLE 74
+#define SERVO_RIGHT_MAX 115
 
+#define MAX_DUTY 1200
+
+#define __SET_MOTOR_DUTY(_TIMER, DUTY_L, DUTY_R)({ \
+	(_TIMER)->Instance->CCR1 = DUTY_L; \
+	(_TIMER)->Instance->CCR2 = DUTY_R; \
+})
+
+#define __SET_MOTOR_DIRECTION(DIR) ({ \
+	HAL_GPIO_WritePin(GPIOA, AIN2_Pin, ((DIR) ? GPIO_PIN_RESET : GPIO_PIN_SET)); \
+	HAL_GPIO_WritePin(GPIOA, AIN1_Pin, ((DIR) ? GPIO_PIN_SET: GPIO_PIN_RESET)); \
+	HAL_GPIO_WritePin(GPIOA, BIN2_Pin, ((DIR) ? GPIO_PIN_RESET: GPIO_PIN_SET)); \
+	HAL_GPIO_WritePin(GPIOA, BIN1_Pin, ((DIR) ? GPIO_PIN_SET: GPIO_PIN_RESET)); \
+})
+
+#define __RESET_SERVO_TURN(_TIMER) (_TIMER)->Instance->CCR4 = SERVO_MIDDLE
+#define __SET_SERVO_TURN_MAX(_TIMER, _DIR) ({ \
+	if (_DIR) (_TIMER)->Instance->CCR4 = SERVO_RIGHT_MAX; \
+	else (_TIMER)->Instance->CCR4 = SERVO_LEFT_MAX; \
+})
+
+#define __SET_SERVO_TURN(_TIMER, AMT) ({ \
+	(_TIMER)->Instance->CCR4 = ((AMT) > SERVO_RIGHT_MAX) ? SERVO_RIGHT_MAX : ((AMT) < SERVO_LEFT_MAX ? SERVO_LEFT_MAX : (AMT));\
+})
+
+#define __SET_CMD_CONFIG(cfg, _MTIMER, _STIMER, targetAngle) ({ \
+	__SET_SERVO_TURN(_STIMER, cfg.servoTurnVal); \
+	targetAngle = cfg.targetAngle; \
+	__SET_MOTOR_DIRECTION(cfg.direction); \
+	__SET_MOTOR_DUTY(_MTIMER, cfg.leftDuty, cfg.rightDuty); \
+})
+
+#define __SET_ENCODER_LAST_TICKS(_TIMER_L, LAST_TICK_L, _TIMER_R, LAST_TICK_R) ({ \
+	LAST_TICK_L = __HAL_TIM_GET_COUNTER(_TIMER_L); \
+	LAST_TICK_R = __HAL_TIM_GET_COUNTER(_TIMER_R); \
+})
+
+#define __GET_ENCODER_TICK_DELTA(_TIMER, LAST_TICK, _DIST) ({ \
+	int CUR_TICK = __HAL_TIM_GET_COUNTER(_TIMER); \
+	if (__HAL_TIM_IS_TIM_COUNTING_DOWN(_TIMER)) { \
+		_DIST = (CUR_TICK <= LAST_TICK) ? LAST_TICK - CUR_TICK : (65535 - CUR_TICK) + LAST_TICK; \
+	} else { \
+		_DIST = (CUR_TICK >= LAST_TICK) ? CUR_TICK - LAST_TICK : (65535 - LAST_TICK) + CUR_TICK; \
+	} \
+})
+
+// FIFO
+// write at head(add command), remove at tail (read command)
+// head == tail implies empty queue
+//
+#define __READ_COMMAND(_CQ, CMD) ({ \
+	CMD = _CQ.buffer[_CQ.tail]; \
+	_CQ.tail = (_CQ.tail + 1) % _CQ.size; \
+})
+
+#define __COMMAND_QUEUE_IS_FULL(_CQ) (_CQ.head + 1) % _CQ.size == _CQ.tail
+
+#define __COMMAND_QUEUE_IS_EMPTY(_CQ) (_CQ.head == _CQ.tail)
+
+#define __ADD_COMMAND(_CQ, TASK_INDEX, TASK_VAL) ({ \
+	_CQ.buffer[_CQ.head].index = TASK_INDEX; \
+	_CQ.buffer[_CQ.head].val = TASK_VAL; \
+	_CQ.head = (_CQ.head + 1) % _CQ.size; \
+})
 /* USER CODE END EM */
 
 void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
@@ -85,67 +157,6 @@ void Error_Handler(void);
 #define PWMB_Pin GPIO_PIN_7
 #define PWMB_GPIO_Port GPIOC
 /* USER CODE BEGIN Private defines */
-#define WHEEL_LENGTH 20.12
-#define PPR 330
-// distance calibration params
-#define DIST_M 1.133145885
-#define DIST_C 2.419816382
-#define DIR_FORWARD 1
-#define DIR_BACKWARD 0
-#define SERVO_LEFT_MAX 50
-#define SERVO_MIDDLE 74
-#define SERVO_RIGHT_MAX 115
-
-#define ERROR_EMPTY 0
-#define ERROR_FULL 0
-
-#define __SET_MOTOR_DUTY(_TIMER, DUTY_L, DUTY_R)({ \
-	(_TIMER)->Instance->CCR1 = DUTY_L; \
-	(_TIMER)->Instance->CCR2 = DUTY_R; \
-})
-
-#define __RESET_SERVO_TURN(_TIMER) (_TIMER)->Instance->CCR4 = SERVO_MIDDLE
-#define __SET_SERVO_TURN_MAX(_TIMER, _DIR) ({ \
-	if (_DIR) (_TIMER)->Instance->CCR4 = SERVO_RIGHT_MAX; \
-	else (_TIMER)->Instance->CCR4 = SERVO_LEFT_MAX; \
-})
-
-#define __SET_SERVO_TURN(_TIMER, AMT) ({ \
-	(_TIMER)->Instance->CCR4 = ((AMT) > SERVO_RIGHT_MAX) ? SERVO_RIGHT_MAX : ((AMT) < SERVO_LEFT_MAX ? SERVO_LEFT_MAX : (AMT));\
-})
-
-#define __SET_ENCODER_LAST_TICKS(_TIMER_L, LAST_TICK_L, _TIMER_R, LAST_TICK_R) ({ \
-	LAST_TICK_L = __HAL_TIM_GET_COUNTER(_TIMER_L); \
-	LAST_TICK_R = __HAL_TIM_GET_COUNTER(_TIMER_R); \
-})
-
-#define __GET_ENCODER_TICK_DELTA(_TIMER, LAST_TICK, _DIST) ({ \
-	int CUR_TICK = __HAL_TIM_GET_COUNTER(_TIMER); \
-	if (__HAL_TIM_IS_TIM_COUNTING_DOWN(_TIMER)) { \
-		_DIST = (CUR_TICK <= LAST_TICK) ? LAST_TICK - CUR_TICK : (65535 - CUR_TICK) + LAST_TICK; \
-	} else { \
-		_DIST = (CUR_TICK >= LAST_TICK) ? CUR_TICK - LAST_TICK : (65535 - LAST_TICK) + CUR_TICK; \
-	} \
-})
-
-// FIFO
-// write at head(add command), remove at tail (read command)
-// head == tail implies empty queue
-//
-#define __READ_COMMAND(_CQ, CMD) ({ \
-	CMD = _CQ.buffer[_CQ.tail]; \
-	_CQ.tail = (_CQ.tail + 1) % _CQ.size; \
-})
-
-#define __COMMAND_QUEUE_IS_FULL(_CQ) (_CQ.head + 1) % _CQ.size == _CQ.tail
-
-#define __COMMAND_QUEUE_IS_EMPTY(_CQ) (_CQ.head == _CQ.tail)
-
-#define __ADD_COMMAND(_CQ, TASK_INDEX, TASK_VAL) ({ \
-	_CQ.buffer[_CQ.head].index = TASK_INDEX; \
-	_CQ.buffer[_CQ.head].val = TASK_VAL; \
-	_CQ.head = (_CQ.head + 1) % _CQ.size; \
-})
 
 
 
