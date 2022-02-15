@@ -70,14 +70,20 @@ extern "C" {
 	HAL_GPIO_WritePin(GPIOA, BIN1_Pin, ((DIR) ? GPIO_PIN_SET: GPIO_PIN_RESET)); \
 })
 
-#define __RESET_SERVO_TURN(_TIMER) (_TIMER)->Instance->CCR4 = SERVO_MIDDLE
+#define __RESET_SERVO_TURN(_TIMER) ({ \
+	(_TIMER)->Instance->CCR4 = SERVO_MIDDLE; \
+	osDelay(500); \
+})
+
 #define __SET_SERVO_TURN_MAX(_TIMER, _DIR) ({ \
 	if (_DIR) (_TIMER)->Instance->CCR4 = SERVO_RIGHT_MAX; \
 	else (_TIMER)->Instance->CCR4 = SERVO_LEFT_MAX; \
+	osDelay(500); \
 })
 
 #define __SET_SERVO_TURN(_TIMER, AMT) ({ \
 	(_TIMER)->Instance->CCR4 = ((AMT) > SERVO_RIGHT_MAX) ? SERVO_RIGHT_MAX : ((AMT) < SERVO_LEFT_MAX ? SERVO_LEFT_MAX : (AMT));\
+	osDelay(500); \
 })
 
 #define __SET_CMD_CONFIG(cfg, _MTIMER, _STIMER, targetAngle) ({ \

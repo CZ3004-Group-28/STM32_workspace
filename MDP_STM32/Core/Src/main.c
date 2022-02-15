@@ -750,30 +750,30 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef * huart) {
 		__ADD_COMMAND(cQueue, 2, val);
 	}
 	else if (aRxBuffer[0] == 'F' && aRxBuffer[1] == 'L') { // FL
-		 __ADD_COMMAND(cQueue, 1, 3); // BW03
+		 __ADD_COMMAND(cQueue, 2, 3); // BW03
 		 __ADD_COMMAND(cQueue, 3, 0); // FL00
-		 __ADD_COMMAND(cQueue, 1, 5); // BW05
+		 __ADD_COMMAND(cQueue, 2, 5); // BW05
 	}
 	else if (aRxBuffer[0] == 'F' && aRxBuffer[1] == 'R') { // FR
-		 __ADD_COMMAND(cQueue, 1, 3); // BW03
+		 __ADD_COMMAND(cQueue, 2, 3); // BW03
 		 __ADD_COMMAND(cQueue, 4, 0); // FR00
-		 __ADD_COMMAND(cQueue, 1, 6); // BW06
+		 __ADD_COMMAND(cQueue, 2, 6); // BW06
 //		task = 4;	// forward right: turn right by 90 degree with 20cm displacement
 	}
 	else if (aRxBuffer[0] == 'B' && aRxBuffer[1] == 'L') {
-		__ADD_COMMAND(cQueue, 2, 6); // FW06
+		__ADD_COMMAND(cQueue, 1, 6); // FW06
 		__ADD_COMMAND(cQueue, 5, 0); // BL00
-		__ADD_COMMAND(cQueue, 2, 4); // FW04
+		__ADD_COMMAND(cQueue, 1, 4); // FW04
 //		task = 5; // backward left
 	}
 	else if (aRxBuffer[0] == 'B' && aRxBuffer[1] == 'R') {
-		__ADD_COMMAND(cQueue, 2, 6); // FW06
+		__ADD_COMMAND(cQueue, 1, 6); // FW06
 		__ADD_COMMAND(cQueue, 6, 0); // BR00
 //		task = 6; // backward right
 	}
 //	else if (aRxBuffer[0] == 'S' && aRxBuffer[1] == 'T') task = 6; // stop
 	else if (aRxBuffer[0] == 'A') __ADD_COMMAND(cQueue, 88, val); //task = 88; // anti-clockwise rotation with variable
-	else if (aRxBuffer[0] == 'C') __ADD_COMMAND(cQueue, 88, val); //task = 89; // clockwise rotation with variable
+	else if (aRxBuffer[0] == 'C') __ADD_COMMAND(cQueue, 89, val); //task = 89; // clockwise rotation with variable
 	else if (aRxBuffer[0] == 'R' && aRxBuffer[1] == 'N') __ADD_COMMAND(cQueue, 92, val); //task = 92; // change target angle (-ve)
 	else if (aRxBuffer[0] == 'R' && aRxBuffer[1] == 'P') __ADD_COMMAND(cQueue, 93, val);//task = 93; // change target angle (+ve)
 	else if (aRxBuffer[0] == 'D' && aRxBuffer[1] == 'D') __ADD_COMMAND(cQueue, 94, val);//task = 94; // set target distance
@@ -782,14 +782,15 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef * huart) {
 	else if (aRxBuffer[0] == 'D' && aRxBuffer[1] == 'R') __ADD_COMMAND(cQueue, 97, val);//task = 97; // right duty test
 	else if (aRxBuffer[0] == 'Q' && aRxBuffer[1] == 'Q') __ADD_COMMAND(cQueue, 98, val);//task = 98; // steering test
 
+	if (!__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
+		__READ_COMMAND(cQueue, curCmd);
+		Run_Command(&curCmd);
+	}
+
+
 	// clear aRx buffer
 	__HAL_UART_FLUSH_DRREGISTER(&huart3);
 	HAL_UART_Receive_IT(&huart3, aRxBuffer, BUFFER_SIZE);
-
-	__READ_COMMAND(cQueue, curCmd);
-	Run_Command(&curCmd);
-
-
 
 }
 
@@ -816,7 +817,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
 void motorStop() {
 	HAL_TIM_Base_Stop_IT(&htim10);
-	targetDist = 0; targetAngle = 0;
+	targetDist = 0; targetAngle = 0; yaw = 0;
 	positionNow = 0; angleNow = 0;
 	__SET_MOTOR_DUTY(&htim8, 0, 0);
 	ekSum = 0; ek1 = 0;
@@ -834,7 +835,10 @@ void Run_Command(Command * cmd) {
 	 case 0: // STOP
 		motorStop();
 		if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) acknowledgeTaskDone();
-		else __READ_COMMAND(cQueue, *cmd);
+		else {
+			__READ_COMMAND(cQueue, *cmd);
+			Run_Command(cmd);
+		}
 		 break;
 	 case 1: //FW
 	 case 2: //BW
@@ -844,7 +848,10 @@ void Run_Command(Command * cmd) {
 		__SET_CMD_CONFIG(cfgs[cmd->index], &htim8, &htim1, targetAngle);
 		if (manualMode) {
 			if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) acknowledgeTaskDone();
-			else __READ_COMMAND(cQueue, *cmd);
+			else {
+				__READ_COMMAND(cQueue, *cmd);
+				Run_Command(cmd);
+			}
 		}
 		__SET_ENCODER_LAST_TICKS(&htim2, lastTick_L, &htim3, lastTick_R);
 		HAL_TIM_Base_Start_IT(&htim10);
@@ -944,7 +951,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 			__RESET_SERVO_TURN(&htim1);
 			motorStop();
 			if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) acknowledgeTaskDone();
-			else __READ_COMMAND(cQueue, curCmd);
+			else {
+				__READ_COMMAND(cQueue, curCmd);
+				Run_Command(&curCmd);
+			}
 			clickOnce = 0; // button click flag to be cleared once reach travel distance (from HAL_GPIO_EXTI_Callback)
 			return;
 		}
@@ -954,7 +964,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 			__RESET_SERVO_TURN(&htim1);
 			motorStop();
 			if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) acknowledgeTaskDone();
-			else __READ_COMMAND(cQueue, curCmd);
+			else {
+				__READ_COMMAND(cQueue, curCmd);
+				Run_Command(&curCmd);
+			}
 			clickOnce = 0; // button click flag to be cleared once reach travel distance (from HAL_GPIO_EXTI_Callback)
 			return;
 		}
@@ -1004,8 +1017,10 @@ void defaultDisplayTask(void *argument)
   {
 	  OLED_ShowString(0, 0, (char *) rxMsg);
 	  OLED_ShowString(0, 12, (char *) aRxBuffer);
-  //	  snprintf(ch, sizeof(ch), "buf:%-5s", aRxBuffer);
-  //	  OLED_ShowString(0, 12, (char *) ch);
+  	  snprintf(ch, sizeof(ch), "h:%-5d", cQueue.head);
+  	  OLED_ShowString(0, 24, (char *) ch);
+		snprintf(ch, sizeof(ch), "t:%-5d", cQueue.tail);
+		OLED_ShowString(0, 36, (char *) ch);
   //	  snprintf(ch, sizeof(ch), "dir:%-5d", dir);
   //	  OLED_ShowString(0, 48, (char *) ch);
 	  snprintf(ch, sizeof(ch), "angle:%-5d", (int)angleNow);
