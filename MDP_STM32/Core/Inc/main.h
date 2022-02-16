@@ -93,6 +93,15 @@ extern "C" {
 	__SET_MOTOR_DUTY(_MTIMER, cfg.leftDuty, cfg.rightDuty); \
 })
 
+#define __CLEAR_CURCMD(cmd) ({ \
+	cmd.index = 100; \
+	cmd.val = 0; \
+})
+
+#define __PEND_CURCMD(cmd) ({ \
+	cmd.index = 99; \
+})
+
 #define __SET_ENCODER_LAST_TICKS(_TIMER_L, LAST_TICK_L, _TIMER_R, LAST_TICK_R) ({ \
 	LAST_TICK_L = __HAL_TIM_GET_COUNTER(_TIMER_L); \
 	LAST_TICK_R = __HAL_TIM_GET_COUNTER(_TIMER_R); \
