@@ -112,11 +112,16 @@ float positionNow = 0;
 int16_t gyroZ;
 int16_t targetAngle = 0;
 float angleNow = 0;
+float angleBefore = 0;
 int correction = 0;
-uint8_t readGyroData[2];
+uint8_t readGyroData[6];
 uint8_t readAccelData[6];
+uint8_t readMagData[6];
 int16_t gyroYaw;
 int16_t accelPitch, accelRoll, accelYaw;
+int16_t gyro[3];
+int16_t accel[3];
+int16_t mag[3];
 float pitch, roll, yaw=0;
 
 // PID
@@ -155,6 +160,7 @@ CmdConfig cfgs[12] = {
 
 //debug variable
 uint8_t UART_STATUS = 4;
+int tick = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -171,10 +177,7 @@ void defaultDisplayTask(void *argument);
 void runCmdTask(void *argument);
 
 /* USER CODE BEGIN PFP */
-//void setMotorDirection(int const dir);
-void Run_Command(Command * cmd);
 void motorStop();
-void acknowledgeTaskDone();
 
 /* USER CODE END PFP */
 
@@ -823,6 +826,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 //		__ADD_COMMAND(cQueue, 1, targetD);
 //		__READ_COMMAND(cQueue, curCmd);
 		// test gyro+accel
+//		tick = HAL_GetTick();
 		HAL_TIM_Base_Start_IT(&htim10);
 	}
 
@@ -836,45 +840,73 @@ void motorStop() {
 	ekSum = 0; ek1 = 0;
 }
 
-void acknowledgeTaskDone() {
-	//acknowledge rpi task done
-	snprintf((char *)rxMsg, sizeof(rxMsg), "done");
-	UART_STATUS = HAL_UART_Transmit(&huart3, (uint8_t *) "ACK\r\n", 4, 0xFFFF);
-}
-
 // TIM10 timer interrupt evoked every 10ms
 // periodically update DC motor's pwmDuty
 // periodically check motor moved distance and speed
 // this ISR block RTOS task when running, hence, must disable it whenever it is not used.
 int count = 0;
-char temp[20];
-int forceMag = 0;
+char temp[50];
+float forceMag = 0;
+float angleAcc = 0;
+uint8_t dummy = 0x0;
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	if (htim != &htim10) return;
 
 	//complimentary filter
-	_ICM20948_BrustRead(&hi2c1, 0, ICM20948__USER_BANK_0__GYRO_ZOUT_H__REGISTER, 2, readGyroData);
-	_ICM20948_BrustRead(&hi2c1, 0, ICM20948__USER_BANK_0__ACCEL_XOUT_H__REGISTER, 6, readAccelData);
+	_AK09918_BrustRead(&hi2c1, AK09916__XOUT_H__REGISTER, 6, readMagData);
+
+//	_AK09918_BrustRead(&hi2c1, ICM20948__USER_BANK_0__EXT_SENS_DATA_00__REGISTER, 6, readMagData); // EXT_SLV_SENS_DATA_00
+	mag[0] = readMagData[1] << 8 | readMagData[0];
+	mag[1] = readMagData[3] << 8 | readMagData[2];
+	mag[2] = readMagData[5] << 8 | readMagData[4];
+	_AK09918_BrustRead(&hi2c1, AK09916__ST2__REGISTER, 1, readMagData);
+//	mag[0] = readMagData[1] << 8 | readMagData[0];
+//	mag[1] = readMagData[3] << 8 | readMagData[2];
+//	mag[2] = readMagData[5] << 8 | readMagData[4];
+
+	mag[0] *= MAG_SENSITIVITY_SCALE_FACTOR;
+	mag[1] *= MAG_SENSITIVITY_SCALE_FACTOR;
+	mag[2] *= MAG_SENSITIVITY_SCALE_FACTOR;
+
+	snprintf(temp, sizeof(temp), "%5d|%5d|%5d\n", mag[0], mag[1], mag[2]);
+	HAL_UART_Transmit(&huart3, (uint8_t *) temp, sizeof(temp), 0xFFFF);
+
+//	_ICM20948_Brust stRead(&hi2c1, 0, ICM20948__USER_BANK_0__ACCEL_XOUT_H__REGISTER, 6, readAccelData);
+
+
+
 
 	// ONLY recalculate when the robot is actually moving => use accelerometer check any movement
 	// sensitivity -2G( -> 2G
-	accelPitch = readAccelData[0] << 8 | readAccelData[1];
-//	accelPitch -= 200;
-	pitch = (accelPitch - 200) / ACCEL_SENSITIVITY_SCALE_FACTOR_2G; // idle offset ~200
-//	accelPitch /= ACCEL_SENSITIVITY_SCALE_FACTOR_2G;
-	accelRoll = readAccelData[2] << 8 | readAccelData[3];
-	roll = accelRoll / ACCEL_SENSITIVITY_SCALE_FACTOR_2G; // idles offset ~0
+	accel[0] = readAccelData[0] << 8 | readAccelData[1];
+//	pitch = (accelPitch);
+//	/ ACCEL_SENSITIVITY_SCALE_FACTOR_2G; // idle offset ~200
+	accel[1] = readAccelData[2] << 8 | readAccelData[3];
+//	roll = accelRoll;
+//	/ ACCEL_SENSITIVITY_SCALE_FACTOR_2G; // idles offset ~0
+	accel[2] = readAccelData[4] << 8 | readAccelData[5];
 
+	gyro[0] = readGyroData[0] << 8 | readGyroData[1];
+	gyro[1] = readGyroData[2] << 8 | readGyroData[3];
+	gyro[2] = readGyroData[4] << 8 | readGyroData[5];
 
-	gyroYaw = readGyroData[0] << 8 | readGyroData[1];
-	angleNow += (gyroYaw - 5) / GRYO_SENSITIVITY_SCALE_FACTOR_1000DPS * 0.01;
+	angleNow += gyro[2] / GRYO_SENSITIVITY_SCALE_FACTOR_1000DPS * 0.01;
+	angleAcc = atan2f(gyro[2],sqrtf(accel[0]*accel[0]+accel[1]*accel[1]))* 57.29577951;
+	angleBefore = angleNow;
+//	snprintf(temp, sizeof(temp), "acc: %3.7f\n", angleAcc);
+//	HAL_UART_Transmit(&huart3, (uint8_t *) temp, sizeof(temp), 0xFFFF);
+//	snprintf(temp, sizeof(temp), "gyro: %3.7f\n\n", angleBefore);
+//	HAL_UART_Transmit(&huart3, (uint8_t *) temp, sizeof(temp), 0xFFFF);
+	forceMag = sqrtf(accel[0]*accel[0] + accel[1]*accel[1] + accel[2]*accel[2]) / ACCEL_SENSITIVITY_SCALE_FACTOR_2G;
 
-	forceMag = abs(pitch) + abs(roll);
-	if (forceMag > 0.5) {
-		angleNow = 0.98 * angleNow + 0.02 * atan2f(pitch, roll) * 57.29577951;
+	if (forceMag > 0.9 && forceMag < 1.1) {
+//		HAL_UART_Transmit(&huart3, (uint8_t *) "not move\n", 9, 0xFFFF);
+		angleNow = 0.98 * angleNow + 0.02 * angleAcc;
+//		snprintf(temp, sizeof(temp), "after: %5.5f\n\n", angleNow);
+//		HAL_UART_Transmit(&huart3, (uint8_t *) temp, sizeof(temp), 0xFFFF);
+
 	}
 
-//	angleNow = 0.98 * yaw + 0.02 * atan2f(accelPitch, accelRoll) * 57.29577951;
 
 	if (moveMode) {//turn
 		if (!manualMode && (
@@ -884,12 +916,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 			motorStop();
 			if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
 				__CLEAR_CURCMD(curCmd);
-				acknowledgeTaskDone();
+				__ACK_TASK_DONE(&huart3, rxMsg);
 			}
-			else {
-				__READ_COMMAND(cQueue, curCmd);
-//				Run_Command(&curCmd);
-			}
+			else __READ_COMMAND(cQueue, curCmd);
 			clickOnce = 0; // button click flag to be cleared once reach travel distance (from HAL_GPIO_EXTI_Callback)
 			return;
 		}
@@ -900,12 +929,9 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 			motorStop();
 			if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
 				__CLEAR_CURCMD(curCmd);
-				acknowledgeTaskDone();
+				__ACK_TASK_DONE(&huart3, rxMsg);
 			}
-			else {
-				__READ_COMMAND(cQueue, curCmd);
-//				Run_Command(&curCmd);
-			}
+			else __READ_COMMAND(cQueue, curCmd);
 			clickOnce = 0; // button click flag to be cleared once reach travel distance (from HAL_GPIO_EXTI_Callback)
 			return;
 		}
@@ -955,17 +981,16 @@ void defaultDisplayTask(void *argument)
   {
 	  OLED_ShowString(0, 0, (char *) rxMsg);
 	  OLED_ShowString(0, 12, (char *) aRxBuffer);
-//  	  snprintf(ch, sizeof(ch), "h:%-1d|t:%-1d", cQueue.head,cQueue.tail);
-//  	  OLED_ShowString(0, 24, (char *) ch);
+//	  snprintf(temp, sizeof(temp), "%3d|%3d|%3d\n", mag[0], mag[1], mag[2]);
+////  	  snprintf(ch, sizeof(ch), "h:%-1d|t:%-1d", cQueue.head,cQueue.tail);
+//  	  OLED_ShowString(0, 24, (char *) temp);
 
-		snprintf(ch, sizeof(ch), "%-5d|%-5d", (int) pitch, (int)roll);
-		OLED_ShowString(0, 24, (char *) ch);
-		snprintf(ch, sizeof(ch), "%-5d", (int) yaw);
-		OLED_ShowString(0, 36, (char *) ch);
-  //	  snprintf(ch, sizeof(ch), "dir:%-5d", dir);
-  //	  OLED_ShowString(0, 48, (char *) ch);
-	  snprintf(ch, sizeof(ch), "angle:%-5d", (int)angleNow);
-	  OLED_ShowString(0, 48, (char *) ch);
+//		snprintf(ch, sizeof(ch), "bf:%3d", (int)angleBefore);
+//		OLED_ShowString(0, 24, (char *) ch);
+//		snprintf(ch, sizeof(ch), "af:%3d", (int) angleNow);
+//		OLED_ShowString(0, 36, (char *) ch);
+//		snprintf(ch, sizeof(ch), "f:%3.6f", forceMag);
+//		OLED_ShowString(0, 48, (char *) ch);
 	  OLED_Refresh_Gram();
 	osDelay(500);
   }
@@ -990,7 +1015,7 @@ void runCmdTask(void *argument)
 	  		motorStop();
 	  		if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
 	  			__CLEAR_CURCMD(curCmd);
-	  			acknowledgeTaskDone();
+	  			__ACK_TASK_DONE(&huart3, rxMsg);
 	  		}
 	  		else {
 	  			__READ_COMMAND(cQueue, curCmd);
@@ -1006,7 +1031,7 @@ void runCmdTask(void *argument)
 	  		if (manualMode) {
 	  			if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
 	  				__CLEAR_CURCMD(curCmd);
-	  				acknowledgeTaskDone();
+	  				__ACK_TASK_DONE(&huart3, rxMsg);
 	  			}
 	  			else {
 	  				__READ_COMMAND(cQueue, curCmd);
@@ -1055,34 +1080,34 @@ void runCmdTask(void *argument)
 	  	 case 92: // RN, change stop angle -ve
 	  	 case 93: // RP, +ve
 	  		 targetAngle = curCmd.val * (curCmd.index - 92 ? 1 : -1);
-	  		 acknowledgeTaskDone();
+	  		__ACK_TASK_DONE(&huart3, rxMsg);
 	  		 __CLEAR_CURCMD(curCmd);
 	  		 break;
 	  	 case 94: // DD set target distance
 	  		 targetDist = curCmd.val;
-	  		 acknowledgeTaskDone();
+	  		__ACK_TASK_DONE(&huart3, rxMsg);
 	  		 __CLEAR_CURCMD(curCmd);
 	  		 break;
 	  	 case 95: // enable/disable pid
 	  		 PIDOn = curCmd.val;
-	  		 acknowledgeTaskDone();
+	  		__ACK_TASK_DONE(&huart3, rxMsg);
 	  		 __CLEAR_CURCMD(curCmd);
 	  		 break;
 	  	 case 96: // DL, left duty test
 	  		 initDuty_L = curCmd.val * 100;
-	  		 acknowledgeTaskDone();
+	  		__ACK_TASK_DONE(&huart3, rxMsg);
 	  		 __CLEAR_CURCMD(curCmd);
 	  		 break;
 	  	 case 97: // DR, right duty test
 	  		 initDuty_R = curCmd.val * 100;
-	  		 acknowledgeTaskDone();
+	  		__ACK_TASK_DONE(&huart3, rxMsg);
 	  		 __CLEAR_CURCMD(curCmd);
 	  		 break;
 	  	 case 98: // QQ, steering test
 	  		 // angle 50-74-115
 	  		 // argument 0-65
 	  		 __SET_SERVO_TURN(&htim1, SERVO_LEFT_MAX + curCmd.val);
-	  		 acknowledgeTaskDone();
+	  		__ACK_TASK_DONE(&huart3, rxMsg);
 	  		 __CLEAR_CURCMD(curCmd);
 	  		 break;
 	  	 case 99:

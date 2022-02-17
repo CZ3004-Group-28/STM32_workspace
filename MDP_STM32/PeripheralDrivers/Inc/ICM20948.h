@@ -1,5 +1,6 @@
 #include "ICM20948_ADDR.h"
 #include "ICM20948_OPTIONS.h"
+#include "AK09918.h"
 #include <stdio.h>
 #include "stm32f4xx_hal.h"
 
@@ -54,9 +55,10 @@
 // void ICM20948_setMagnetometerDataSize(bool is16Bit);
 
 HAL_StatusTypeDef _ICM20948_BrustRead(I2C_HandleTypeDef * hi2c, uint8_t const selectI2cAddress, uint8_t const startAddress, uint16_t const amountOfRegistersToRead, uint8_t * readData);
-
+HAL_StatusTypeDef _AK09918_BrustRead(I2C_HandleTypeDef * hi2c, uint8_t const startAddress, uint16_t const amountOfRegistersToRead, uint8_t * readData);
 uint8_t ICM20948_isI2cAddress1(I2C_HandleTypeDef * hi2c);
 uint8_t ICM20948_isI2cAddress2(I2C_HandleTypeDef * hi2c);
+HAL_StatusTypeDef _AK09918_WriteByte(I2C_HandleTypeDef * hi2c, uint8_t const registerAddress, uint8_t writeData);
 void ICM20948_init(I2C_HandleTypeDef * hi2c, uint8_t const selectI2cAddress, uint8_t const selectGyroSensitivity, uint8_t const selectAccelSensitivity);
 void ICM20948_readGyroscope_allAxises(I2C_HandleTypeDef * hi2c, uint8_t const selectI2cAddress, uint8_t const selectGyroSensitivity, int16_t readings[3]);
 void ICM20948_readGyroscope_Z(I2C_HandleTypeDef * hi2c, uint8_t const selectI2cAddress, uint8_t const selectGyroSensitivity, int16_t *gyroZ);

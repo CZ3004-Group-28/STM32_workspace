@@ -1745,3 +1745,48 @@ com.sun.jna.platform.win32.Win32Exception: The system cannot find the file speci
 	at com.st.stm32cube.ide.mcu.externaltools.ui.internal.startup.MCUExternalToolsStartup.doPrint(MCUExternalToolsStartup.java:98)
 	at com.st.stm32cube.ide.mcu.externaltools.ui.internal.startup.MCUExternalToolsStartup$1.run(MCUExternalToolsStartup.java:176)
 	at org.eclipse.core.internal.jobs.Worker.run(Worker.java:63)
+!SESSION 2022-02-16 15:52:19.665 -----------------------------------------------
+eclipse.buildId=Version 1.8.0
+java.version=11.0.11
+java.vendor=AdoptOpenJDK
+BootLoader constants: OS=win32, ARCH=x86_64, WS=win32, NL=en_SG
+Command-line arguments:  -os win32 -ws win32 -arch x86_64
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 4 4 2022-02-16 15:53:29.589
+!MESSAGE CubeMX plugin appears to be active, Log4j initialization might be too late.
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 1 1 2022-02-16 15:53:29.764
+!MESSAGE Log4j initialized with config file C:\Users\cheew\OneDrive\Documents\GitHub\STM32_workspace\.metadata\.log4j.xml
+
+!ENTRY com.st.stm32cube.ide.mcu.ide 1 1 2022-02-16 15:53:44.619
+!MESSAGE Started RMI Server, listening on port 41337
+!SESSION 2022-02-16 17:56:18.132 -----------------------------------------------
+eclipse.buildId=Version 1.8.0
+java.version=11.0.11
+java.vendor=AdoptOpenJDK
+BootLoader constants: OS=win32, ARCH=x86_64, WS=win32, NL=en_SG
+Command-line arguments:  -os win32 -ws win32 -arch x86_64
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 4 4 2022-02-16 17:56:32.048
+!MESSAGE CubeMX plugin appears to be active, Log4j initialization might be too late.
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 1 1 2022-02-16 17:56:32.157
+!MESSAGE Log4j initialized with config file C:\Users\cheew\OneDrive\Documents\GitHub\STM32_workspace\.metadata\.log4j.xml
+
+!ENTRY com.st.stm32cube.ide.mcu.ide 1 1 2022-02-16 17:56:40.040
+!MESSAGE Started RMI Server, listening on port 41337
+!SESSION 2022-02-17 00:30:49.117 -----------------------------------------------
+eclipse.buildId=Version 1.8.0
+java.version=11.0.11
+java.vendor=AdoptOpenJDK
+BootLoader constants: OS=win32, ARCH=x86_64, WS=win32, NL=en_SG
+Command-line arguments:  -os win32 -ws win32 -arch x86_64
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 4 4 2022-02-17 00:31:00.919
+!MESSAGE CubeMX plugin appears to be active, Log4j initialization might be too late.
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 1 1 2022-02-17 00:31:01.021
+!MESSAGE Log4j initialized with config file C:\Users\cheew\OneDrive\Documents\GitHub\STM32_workspace\.metadata\.log4j.xml
+
+!ENTRY com.st.stm32cube.ide.mcu.ide 1 1 2022-02-17 00:31:08.472
+!MESSAGE Started RMI Server, listening on port 41337

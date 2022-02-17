@@ -158,7 +158,7 @@ void ICM20948_init(I2C_HandleTypeDef * hi2c, uint8_t const selectI2cAddress, uin
 			hi2c,
 			selectI2cAddress,
 			ICM20948__USER_BANK_2__ACCEL_CONFIG__REGISTER,
-			0x03<< BIT_3|selectAccelSensitivity << BIT_1|0x01 << BIT_0); 
+			0x03<< BIT_3|selectAccelSensitivity << BIT_1|0x01 << BIT_0);
 
 	status = _ICM20948_WriteByte(
 			hi2c,
@@ -166,15 +166,23 @@ void ICM20948_init(I2C_HandleTypeDef * hi2c, uint8_t const selectI2cAddress, uin
 			ICM20948__USER_BANK_2__ACCEL_SMPLRT_DIV_2__REGISTER,
 			0x04); // Don't understand how this works
 
-	status = _ICM20948_SelectUserBank(hi2c, selectI2cAddress, USER_BANK_0);
 
+	status = _ICM20948_SelectUserBank(hi2c, selectI2cAddress, USER_BANK_3);
+	status = _ICM20948_WriteByte(
+				hi2c,
+				selectI2cAddress,
+				ICM20948__USER_BANK_3__I2C_MST_ODR_CONFIG__REGISTER,
+				0x04);
+
+	status = _ICM20948_SelectUserBank(hi2c, selectI2cAddress, USER_BANK_0);
+//
 	status = _ICM20948_WriteByte(
 			hi2c,
 			selectI2cAddress,
 			ICM20948__USER_BANK_0__INT_PIN_CFG__REGISTER,
 			0x02); // Don't understand how this works
 
-//	status = _AK09918_WriteByte(hi2c, AK09916__CNTL2__REGISTER, 0x08);
+	status = _AK09918_WriteByte(hi2c, AK09916__CNTL2__REGISTER, 0x08);
 }
 
 void ICM20948_readGyroscope_allAxises(I2C_HandleTypeDef * hi2c, uint8_t const selectI2cAddress, uint8_t const selectGyroSensitivity, int16_t readings[3]) {
@@ -273,11 +281,41 @@ void ICM20948_readTemperature(I2C_HandleTypeDef * hi2c, uint8_t const selectI2cA
   *reading = readData[T_HIGH_BYTE]<<8|readData[T_LOW_BYTE];
 }
 
+HAL_StatusTypeDef _AK09918_BrustRead(I2C_HandleTypeDef * hi2c, uint8_t const startAddress, uint16_t const amountOfRegistersToRead, uint8_t * readData) {
+	HAL_StatusTypeDef status = HAL_OK;
+
+	status = HAL_I2C_Mem_Read(
+			hi2c,
+			AK09918__I2C_SLAVE_ADDRESS << 1,
+			startAddress,
+			I2C_MEMADD_SIZE_8BIT,
+			readData,
+			amountOfRegistersToRead,
+			0xFFFF);
+
+	return status;
+}
+
+HAL_StatusTypeDef _AK09918_WriteByte(I2C_HandleTypeDef * hi2c, uint8_t const registerAddress, uint8_t writeData) {
+	HAL_StatusTypeDef status = HAL_OK;
+
+	status = HAL_I2C_Mem_Write(
+			hi2c,
+			AK09918__I2C_SLAVE_ADDRESS << 1,
+			registerAddress,
+			I2C_MEMADD_SIZE_8BIT,
+			&writeData,
+			I2C_MEMADD_SIZE_8BIT,
+			10);
+
+	return status;
+}
+
 void ICM20948_readMagnetometer_allAxises(I2C_HandleTypeDef * hi2c, int16_t readings[3]) {
 	HAL_StatusTypeDef status = HAL_OK;
 	uint8_t readData[6];
 
-//	status = _AK09918_BrustRead(hi2c, AK09916__XOUT_H__REGISTER, 6, readData);
+	status = _AK09918_BrustRead(hi2c, AK09916__XOUT_H__REGISTER, 6, readData);
 
 	readings[X] = readData[X_HIGH_BYTE]<<8|readData[X_LOW_BYTE];
 	readings[Y] = readData[Y_HIGH_BYTE]<<8|readData[Y_LOW_BYTE];
