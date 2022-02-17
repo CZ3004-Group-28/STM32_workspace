@@ -109,10 +109,8 @@ float targetDist = 0;
 float positionNow = 0;
 
 //I2C
-int16_t gyroZ;
 int16_t targetAngle = 0;
 float angleNow = 0;
-float angleBefore = 0;
 int correction = 0;
 uint8_t readGyroData[6];
 uint8_t readAccelData[6];
@@ -143,10 +141,21 @@ CmdConfig cfgs[12] = {
 	{0,0,74,0, DIR_FORWARD}, // STOP
 	{1200, 1200, 74, 0, DIR_FORWARD}, // FW00
 	{1200, 1200, 74, 0, DIR_BACKWARD}, // BW00
+
 	{300, 1800, 50, 87, DIR_FORWARD}, // FL20
 	{2000, 300, 115 ,-84, DIR_FORWARD}, // FR20
 	{300, 1700, 50, -87, DIR_BACKWARD}, // BL20
 	{2200, 300, 115, 85, DIR_BACKWARD}, // BR20
+
+	{300, 1900, 57, 86, DIR_FORWARD}, // FL30
+	{1800, 300, 99, -86, DIR_FORWARD}, // FR30
+	{300, 1700, 55, -87, DIR_BACKWARD}, //BL30
+	{1700, 300, 105, 87, DIR_BACKWARD}, // BR30
+
+	{0, 0, 74, 0, DIR_FORWARD}, // FL40
+	{0, 0, 74, 0, DIR_FORWARD}, // FR40
+	{0, 0, 74, 0, DIR_BACKWARD}, // BL40
+	{0, 0, 74, 0, DIR_BACKWARD}, // BR40
 //	{},
 //	{},
 //	{},
@@ -751,7 +760,6 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef * huart) {
 	int val;
 
 //	snprintf(curTask, sizeof(curTask), "%c%c%c%c", aRxBuffer[0],aRxBuffer[1],aRxBuffer[2],aRxBuffer[3]);
-//	snprintf(rxMsg, sizeof(rxMsg), "doing:%-10s", curTask);
 
 	val = (aRxBuffer[2] - 48) * 10 + (aRxBuffer[3] - 48);
 	if (aRxBuffer[1] >= '0' && aRxBuffer[1] <= '9') val += (aRxBuffer[1] - 48) * 100;
@@ -768,26 +776,71 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef * huart) {
 		__ADD_COMMAND(cQueue, 2, val);
 	}
 	else if (aRxBuffer[0] == 'F' && aRxBuffer[1] == 'L') { // FL
-		 __ADD_COMMAND(cQueue, 2, 3); // BW03
-		 __ADD_COMMAND(cQueue, 3, 0); // FL00
-		 __ADD_COMMAND(cQueue, 2, 5); // BW05
+		switch (val) {
+		case 0:
+		case 20:
+			 __ADD_COMMAND(cQueue, 2, 3); // BW03
+			 __ADD_COMMAND(cQueue, 3, 0); // FL00
+			 __ADD_COMMAND(cQueue, 2, 5); // BW05
+			break;
+		case 30:
+			 __ADD_COMMAND(cQueue, 3, 0); // FL00
+			 __ADD_COMMAND(cQueue, 2, 3); // BW03
+			break;
+		case 40:
+			break;
+		}
+
 	}
 	else if (aRxBuffer[0] == 'F' && aRxBuffer[1] == 'R') { // FR
-		 __ADD_COMMAND(cQueue, 2, 3); // BW03
-		 __ADD_COMMAND(cQueue, 4, 0); // FR00
-		 __ADD_COMMAND(cQueue, 2, 6); // BW06
-//		task = 4;	// forward right: turn right by 90 degree with 20cm displacement
+		switch (val) {
+		case 0:
+		case 20:
+			__ADD_COMMAND(cQueue, 2, 3); // BW03
+			 __ADD_COMMAND(cQueue, 4, 0); // FR00
+			 __ADD_COMMAND(cQueue, 2, 6); // BW06
+			break;
+		case 30:
+			__ADD_COMMAND(cQueue, 4, 0); // FR00
+			__ADD_COMMAND(cQueue, 2, 5); // BW05
+			break;
+		case 40:
+			break;
+		}
+
 	}
-	else if (aRxBuffer[0] == 'B' && aRxBuffer[1] == 'L') {
-		__ADD_COMMAND(cQueue, 1, 6); // FW06
-		__ADD_COMMAND(cQueue, 5, 0); // BL00
-		__ADD_COMMAND(cQueue, 1, 4); // FW04
-//		task = 5; // backward left
+	else if (aRxBuffer[0] == 'B' && aRxBuffer[1] == 'L') { // BL
+		switch (val) {
+		case 0:
+		case 20:
+			__ADD_COMMAND(cQueue, 1, 6); // FW06
+			__ADD_COMMAND(cQueue, 5, 0); // BL00
+			__ADD_COMMAND(cQueue, 1, 4); // FW04
+			break;
+		case 30:
+			__ADD_COMMAND(cQueue, 5, 0); // BL00
+			__ADD_COMMAND(cQueue, 2, 3); // BW03
+			break;
+		case 40:
+			break;
+		}
+
 	}
 	else if (aRxBuffer[0] == 'B' && aRxBuffer[1] == 'R') {
-		__ADD_COMMAND(cQueue, 1, 6); // FW06
-		__ADD_COMMAND(cQueue, 6, 0); // BR00
-//		task = 6; // backward right
+		switch (val) {
+		case 0:
+		case 20:
+			__ADD_COMMAND(cQueue, 1, 6); // FW06
+			__ADD_COMMAND(cQueue, 6, 0); // BR00
+			break;
+		case 30:
+			__ADD_COMMAND(cQueue, 6, 0); // BR00
+			__ADD_COMMAND(cQueue, 2, 6); // BW06
+			break;
+		case 40:
+			break;
+		}
+
 	}
 //	else if (aRxBuffer[0] == 'S' && aRxBuffer[1] == 'T') task = 6; // stop
 	else if (aRxBuffer[0] == 'A') __ADD_COMMAND(cQueue, 88, val); //task = 88; // anti-clockwise rotation with variable
@@ -814,20 +867,23 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef * huart) {
 }
 
 int clickOnce = 0;
-int targetRot = 90;
+int targetRot = 30;
 int targetD = 0;
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 	if (clickOnce) return;
 	if (GPIO_Pin == SW1_Pin) {
 		clickOnce = 1;
-		manualMode = 1;
+		manualMode = 0;
 
 //		targetD = targetD == 120 ? 0 : targetD + 5;
 //		__ADD_COMMAND(cQueue, 1, targetD);
 //		__READ_COMMAND(cQueue, curCmd);
 		// test gyro+accel
 //		tick = HAL_GetTick();
-		HAL_TIM_Base_Start_IT(&htim10);
+		__ADD_COMMAND(cQueue,88, targetRot);
+		__READ_COMMAND(cQueue, curCmd);
+		targetRot = (targetRot + 15) % 375;
+//		HAL_TIM_Base_Start_IT(&htim10);
 	}
 
 }
@@ -845,68 +901,16 @@ void motorStop() {
 // periodically check motor moved distance and speed
 // this ISR block RTOS task when running, hence, must disable it whenever it is not used.
 int count = 0;
-char temp[50];
-float forceMag = 0;
-float angleAcc = 0;
-uint8_t dummy = 0x0;
+char temp[20];
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	if (htim != &htim10) return;
 
 	//complimentary filter
-	_AK09918_BrustRead(&hi2c1, AK09916__XOUT_H__REGISTER, 6, readMagData);
-
-//	_AK09918_BrustRead(&hi2c1, ICM20948__USER_BANK_0__EXT_SENS_DATA_00__REGISTER, 6, readMagData); // EXT_SLV_SENS_DATA_00
-	mag[0] = readMagData[1] << 8 | readMagData[0];
-	mag[1] = readMagData[3] << 8 | readMagData[2];
-	mag[2] = readMagData[5] << 8 | readMagData[4];
-	_AK09918_BrustRead(&hi2c1, AK09916__ST2__REGISTER, 1, readMagData);
-//	mag[0] = readMagData[1] << 8 | readMagData[0];
-//	mag[1] = readMagData[3] << 8 | readMagData[2];
-//	mag[2] = readMagData[5] << 8 | readMagData[4];
-
-	mag[0] *= MAG_SENSITIVITY_SCALE_FACTOR;
-	mag[1] *= MAG_SENSITIVITY_SCALE_FACTOR;
-	mag[2] *= MAG_SENSITIVITY_SCALE_FACTOR;
-
-	snprintf(temp, sizeof(temp), "%5d|%5d|%5d\n", mag[0], mag[1], mag[2]);
-	HAL_UART_Transmit(&huart3, (uint8_t *) temp, sizeof(temp), 0xFFFF);
-
-//	_ICM20948_Brust stRead(&hi2c1, 0, ICM20948__USER_BANK_0__ACCEL_XOUT_H__REGISTER, 6, readAccelData);
-
-
-
-
-	// ONLY recalculate when the robot is actually moving => use accelerometer check any movement
-	// sensitivity -2G( -> 2G
-	accel[0] = readAccelData[0] << 8 | readAccelData[1];
-//	pitch = (accelPitch);
-//	/ ACCEL_SENSITIVITY_SCALE_FACTOR_2G; // idle offset ~200
-	accel[1] = readAccelData[2] << 8 | readAccelData[3];
-//	roll = accelRoll;
-//	/ ACCEL_SENSITIVITY_SCALE_FACTOR_2G; // idles offset ~0
-	accel[2] = readAccelData[4] << 8 | readAccelData[5];
-
-	gyro[0] = readGyroData[0] << 8 | readGyroData[1];
-	gyro[1] = readGyroData[2] << 8 | readGyroData[3];
-	gyro[2] = readGyroData[4] << 8 | readGyroData[5];
-
+	__Gyro_Read(&hi2c1, readGyroData, gyro);
 	angleNow += gyro[2] / GRYO_SENSITIVITY_SCALE_FACTOR_1000DPS * 0.01;
-	angleAcc = atan2f(gyro[2],sqrtf(accel[0]*accel[0]+accel[1]*accel[1]))* 57.29577951;
-	angleBefore = angleNow;
-//	snprintf(temp, sizeof(temp), "acc: %3.7f\n", angleAcc);
-//	HAL_UART_Transmit(&huart3, (uint8_t *) temp, sizeof(temp), 0xFFFF);
-//	snprintf(temp, sizeof(temp), "gyro: %3.7f\n\n", angleBefore);
-//	HAL_UART_Transmit(&huart3, (uint8_t *) temp, sizeof(temp), 0xFFFF);
-	forceMag = sqrtf(accel[0]*accel[0] + accel[1]*accel[1] + accel[2]*accel[2]) / ACCEL_SENSITIVITY_SCALE_FACTOR_2G;
 
-	if (forceMag > 0.9 && forceMag < 1.1) {
-//		HAL_UART_Transmit(&huart3, (uint8_t *) "not move\n", 9, 0xFFFF);
-		angleNow = 0.98 * angleNow + 0.02 * angleAcc;
-//		snprintf(temp, sizeof(temp), "after: %5.5f\n\n", angleNow);
-//		HAL_UART_Transmit(&huart3, (uint8_t *) temp, sizeof(temp), 0xFFFF);
-
-	}
-
+//	snprintf(temp, 15, "angle: %5d\n", (int)angleNow);
+//	HAL_UART_Transmit(&huart3, (uint8_t *)temp, 15, 0xFFFF);
 
 	if (moveMode) {//turn
 		if (!manualMode && (
@@ -987,8 +991,8 @@ void defaultDisplayTask(void *argument)
 
 //		snprintf(ch, sizeof(ch), "bf:%3d", (int)angleBefore);
 //		OLED_ShowString(0, 24, (char *) ch);
-//		snprintf(ch, sizeof(ch), "af:%3d", (int) angleNow);
-//		OLED_ShowString(0, 36, (char *) ch);
+		snprintf(ch, sizeof(ch), "af:%4d", (int) angleNow);
+		OLED_ShowString(0, 36, (char *) ch);
 //		snprintf(ch, sizeof(ch), "f:%3.6f", forceMag);
 //		OLED_ShowString(0, 48, (char *) ch);
 	  OLED_Refresh_Gram();
@@ -1019,7 +1023,6 @@ void runCmdTask(void *argument)
 	  		}
 	  		else {
 	  			__READ_COMMAND(cQueue, curCmd);
-//	  			Run_Command(cmd);
 	  		}
 	  		 break;
 	  	 case 1: //FW
@@ -1035,7 +1038,6 @@ void runCmdTask(void *argument)
 	  			}
 	  			else {
 	  				__READ_COMMAND(cQueue, curCmd);
-//	  				Run_Command(cmd);
 	  			}
 	  		}
 	  		__SET_ENCODER_LAST_TICKS(&htim2, lastTick_L, &htim3, lastTick_R);
@@ -1044,24 +1046,28 @@ void runCmdTask(void *argument)
 	  		 break;
 	  	 case 3: //FL
 	  		 moveMode = 1;
+	  		 curCmd.index += curCmd.value == 30 ? 4 : (curCmd.value == 40 ? 8 : 0);
 	  		 __SET_CMD_CONFIG(cfgs[curCmd.index], &htim8, &htim1, targetAngle);
 	  		 HAL_TIM_Base_Start_IT(&htim10);
 	  		 __PEND_CURCMD(curCmd);
 	  		 break;
 	  	 case 4: //FR
 	  		 moveMode = 1;
+	  		curCmd.index += curCmd.value == 30 ? 4 : (curCmd.value == 40 ? 8 : 0);
 	  		 __SET_CMD_CONFIG(cfgs[curCmd.index], &htim8, &htim1, targetAngle);
 	  		 HAL_TIM_Base_Start_IT(&htim10);
 	  		 __PEND_CURCMD(curCmd);
 	  		 break;
 	  	 case 5: //BL
 	  		 moveMode = 1;
+	  		curCmd.index += curCmd.value == 30 ? 4 : (curCmd.value == 40 ? 8 : 0);
 	  		 __SET_CMD_CONFIG(cfgs[curCmd.index], &htim8, &htim1, targetAngle);
 	  		 HAL_TIM_Base_Start_IT(&htim10);
 	  		 __PEND_CURCMD(curCmd);
 	  		 break;
 	  	 case 6: //BR
 	  		 moveMode = 1;
+	  		curCmd.index += curCmd.value == 30 ? 4 : (curCmd.value == 40 ? 8 : 0);
 	  		 __SET_CMD_CONFIG(cfgs[curCmd.index], &htim8, &htim1, targetAngle);
 	  		 HAL_TIM_Base_Start_IT(&htim10);
 	  		 __PEND_CURCMD(curCmd);
@@ -1070,10 +1076,17 @@ void runCmdTask(void *argument)
 	  	 case 89: // Cxxx, rotate right by xxx degree
 	  		 moveMode = 1;
 
-	  		 targetAngle = (curCmd.index - 88 ? -1 : 1) * (curCmd.val - 5); // -5 for offset
+	  		 targetAngle = (curCmd.index - 88 ? -1 : 1) * curCmd.val; // -5 for offset
 	  		 __SET_SERVO_TURN_MAX(&htim1, curCmd.index - 88);
 	  		 __SET_MOTOR_DIRECTION(DIR_FORWARD);
-	  		 __SET_MOTOR_DUTY(&htim8, MAX_DUTY, MAX_DUTY);
+	  		 if (curCmd.index == 88) {
+	  			 targetAngle = curCmd.val;
+	  			 __SET_MOTOR_DUTY(&htim8, 800, 1200);
+	  		 } else {
+	  			targetAngle = -curCmd.val;
+	  			 __SET_MOTOR_DUTY(&htim8, 1200, 800);
+	  		 }
+
 	  		 HAL_TIM_Base_Start_IT(&htim10);
 	  		 __PEND_CURCMD(curCmd);
 	  		 break;

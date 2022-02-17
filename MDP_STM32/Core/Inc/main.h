@@ -139,6 +139,35 @@ extern "C" {
 	_CQ.buffer[_CQ.head].val = TASK_VAL; \
 	_CQ.head = (_CQ.head + 1) % _CQ.size; \
 })
+
+
+// Magnetometer read access
+#define __Mag_Read(_I2C, readMagData, mag) ({ \
+	HAL_I2C_Mem_Read(_I2C, AK09918__I2C_SLAVE_ADDRESS << 1, AK09916__XOUT_H__REGISTER, I2C_MEMADD_SIZE_8BIT, readMagData, 6,0xFFFF); \
+	mag[0] = readMagData[1] << 8 | readMagData[0]; \
+	mag[1] = readMagData[3] << 8 | readMagData[2]; \
+	mag[2] = readMagData[5] << 8 | readMagData[4]; \
+	HAL_I2C_Mem_Read(_I2C, AK09918__I2C_SLAVE_ADDRESS << 1, AK09916__ST2__REGISTER, I2C_MEMADD_SIZE_8BIT, readMagData, 6,0xFFFF); \
+	mag[0] *= MAG_SENSITIVITY_SCALE_FACTOR; \
+	mag[1] *= MAG_SENSITIVITY_SCALE_FACTOR; \
+	mag[2] *= MAG_SENSITIVITY_SCALE_FACTOR; \
+})
+
+#define __Accel_Read(_I2C, readAccelData, accel) ({ \
+	HAL_I2C_Mem_Read(_I2C, ICM20948__I2C_SLAVE_ADDRESS_1 << 1, ICM20948__USER_BANK_0__ACCEL_XOUT_H__REGISTER, I2C_MEMADD_SIZE_8BIT, readAccelData, 6, 10); \
+	accel[0] = readAccelData[0] << 8 | readAccelData[1]; \
+	accel[1] = readAccelData[2] << 8 | readAccelData[3]; \
+	accel[2] = readAccelData[4] << 8 | readAccelData[5]; \
+})
+
+#define __Gyro_Read(_I2C, readGyroData, gyro) ({ \
+	HAL_I2C_Mem_Read(_I2C,ICM20948__I2C_SLAVE_ADDRESS_1 << 1, ICM20948__USER_BANK_0__GYRO_XOUT_H__REGISTER, I2C_MEMADD_SIZE_8BIT, readGyroData, 6, 10); \
+	gyro[0] = readGyroData[0] << 8 | readGyroData[1]; \
+	gyro[1] = readGyroData[2] << 8 | readGyroData[3]; \
+	gyro[2] = readGyroData[4] << 8 | readGyroData[5]; \
+})
+
+
 /* USER CODE END EM */
 
 void HAL_TIM_MspPostInit(TIM_HandleTypeDef *htim);
