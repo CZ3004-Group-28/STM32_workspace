@@ -59,7 +59,7 @@ extern "C" {
 #define MAX_DUTY 1500
 
 #define __ACK_TASK_DONE(_UART, msg) ({ \
-	snprintf((char *)msg, sizeof(msg), "done"); \
+	snprintf((char *)msg, sizeof(msg) - 1, "done"); \
 	HAL_UART_Transmit(_UART, (uint8_t *) "ACK|\r\n", 6, 0xFFFF); \
 })
 
