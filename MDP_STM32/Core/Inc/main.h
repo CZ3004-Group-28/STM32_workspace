@@ -56,11 +56,11 @@ extern "C" {
 #define SERVO_MIDDLE 74
 #define SERVO_RIGHT_MAX 115
 
-#define MAX_DUTY 1200
+#define MAX_DUTY 1500
 
 #define __ACK_TASK_DONE(_UART, msg) ({ \
 	snprintf((char *)msg, sizeof(msg), "done"); \
-	HAL_UART_Transmit(_UART, (uint8_t *) "ACK\r\n", 4, 0xFFFF); \
+	HAL_UART_Transmit(_UART, (uint8_t *) "ACK|\r\n", 6, 0xFFFF); \
 })
 
 #define __SET_MOTOR_DUTY(_TIMER, DUTY_L, DUTY_R)({ \

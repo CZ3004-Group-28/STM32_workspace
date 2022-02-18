@@ -137,39 +137,35 @@ typedef struct _commandConfig {
 	uint8_t direction;
 } CmdConfig;
 
-CmdConfig cfgs[12] = {
+CmdConfig cfgs[19] = {
 	{0,0,74,0, DIR_FORWARD}, // STOP
 	{1200, 1200, 74, 0, DIR_FORWARD}, // FW00
 	{1200, 1200, 74, 0, DIR_BACKWARD}, // BW00
 
+	{800, 1200, 50, 0, DIR_FORWARD}, // FL--
+	{1200, 800, 115, 0, DIR_FORWARD}, // FR--
+	{800, 1200, 50, 0, DIR_BACKWARD}, // BL--
+	{1200, 800, 115, 0, DIR_BACKWARD}, // BR--
+
 	{300, 1800, 50, 87, DIR_FORWARD}, // FL20
 	{2000, 300, 115 ,-84, DIR_FORWARD}, // FR20
-	{300, 1700, 50, -87, DIR_BACKWARD}, // BL20
-	{2200, 300, 115, 85, DIR_BACKWARD}, // BR20
+	{400, 1700, 50, -87, DIR_BACKWARD}, // BL20
+	{2200, 300, 115, 88, DIR_BACKWARD}, // BR20
 
-	{300, 1900, 57, 86, DIR_FORWARD}, // FL30
-	{1800, 300, 99, -86, DIR_FORWARD}, // FR30
+	{300, 1900, 57, 88, DIR_FORWARD}, // FL30
+	{1800, 400, 99, -88, DIR_FORWARD}, // FR30
 	{300, 1700, 55, -87, DIR_BACKWARD}, //BL30
-	{1700, 300, 105, 87, DIR_BACKWARD}, // BR30
+	{1700, 400, 105, 88, DIR_BACKWARD}, // BR30
 
-	{0, 0, 74, 0, DIR_FORWARD}, // FL40
-	{0, 0, 74, 0, DIR_FORWARD}, // FR40
-	{0, 0, 74, 0, DIR_BACKWARD}, // BL40
-	{0, 0, 74, 0, DIR_BACKWARD}, // BR40
-//	{},
-//	{},
-//	{},
-//	{},
-//	{},
-//	{},
-//	{},
+	{900, 1500, 59, 89, DIR_FORWARD}, // FL40
+	{1300, 1300, 96, -86, DIR_FORWARD}, // FR40
+	{900, 1300, 61, -89, DIR_BACKWARD}, // BL40
+	{1300, 900, 98, 89, DIR_BACKWARD}, // BR40
 //	{},
 };
 
 
 //debug variable
-uint8_t UART_STATUS = 4;
-int tick = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -247,7 +243,7 @@ int main(void)
 	  cQueue.buffer[i] = cmd;
   }
 
-  	HAL_UART_Receive_IT(&huart3, (uint8_t *) aRxBuffer,BUFFER_SIZE);
+  	HAL_UART_Receive_IT(&huart3, aRxBuffer,BUFFER_SIZE);
 
 	// servo motor turn
 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
@@ -759,8 +755,6 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef * huart) {
 	UNUSED(huart);
 	int val;
 
-//	snprintf(curTask, sizeof(curTask), "%c%c%c%c", aRxBuffer[0],aRxBuffer[1],aRxBuffer[2],aRxBuffer[3]);
-
 	val = (aRxBuffer[2] - 48) * 10 + (aRxBuffer[3] - 48);
 	if (aRxBuffer[1] >= '0' && aRxBuffer[1] <= '9') val += (aRxBuffer[1] - 48) * 100;
 
@@ -776,87 +770,117 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef * huart) {
 		__ADD_COMMAND(cQueue, 2, val);
 	}
 	else if (aRxBuffer[0] == 'F' && aRxBuffer[1] == 'L') { // FL
-		switch (val) {
-		case 0:
-		case 20:
-			 __ADD_COMMAND(cQueue, 2, 3); // BW03
-			 __ADD_COMMAND(cQueue, 3, 0); // FL00
-			 __ADD_COMMAND(cQueue, 2, 5); // BW05
-			break;
-		case 30:
-			 __ADD_COMMAND(cQueue, 3, 0); // FL00
-			 __ADD_COMMAND(cQueue, 2, 3); // BW03
-			break;
-		case 40:
-			break;
+		if (aRxBuffer[2] == '-' && aRxBuffer[3] == '-') {
+			manualMode = 1;
+			__ADD_COMMAND(cQueue, 3, 0); // FL manual
+		} else {
+			switch (val) {
+			case 0:
+			case 20:
+				 __ADD_COMMAND(cQueue, 2, 3); // BW03
+				 __ADD_COMMAND(cQueue, 7, val); // FL00
+				 __ADD_COMMAND(cQueue, 2, 5); // BW05
+				break;
+			case 30:
+				 __ADD_COMMAND(cQueue, 7, val); // FL00
+				 __ADD_COMMAND(cQueue, 2, 3); // BW03
+				break;
+			case 40:
+				 __ADD_COMMAND(cQueue, 7, val); // FL00
+				 __ADD_COMMAND(cQueue, 1, 8); // FW08
+				break;
+			}
 		}
+
 
 	}
 	else if (aRxBuffer[0] == 'F' && aRxBuffer[1] == 'R') { // FR
-		switch (val) {
-		case 0:
-		case 20:
-			__ADD_COMMAND(cQueue, 2, 3); // BW03
-			 __ADD_COMMAND(cQueue, 4, 0); // FR00
-			 __ADD_COMMAND(cQueue, 2, 6); // BW06
-			break;
-		case 30:
-			__ADD_COMMAND(cQueue, 4, 0); // FR00
-			__ADD_COMMAND(cQueue, 2, 5); // BW05
-			break;
-		case 40:
-			break;
+		if (aRxBuffer[2] == '-' && aRxBuffer[3] == '-') {
+			manualMode = 1;
+			__ADD_COMMAND(cQueue, 4, 0); // FR manual
+		} else {
+			switch (val) {
+			case 0:
+			case 20:
+				__ADD_COMMAND(cQueue, 2, 3); // BW03
+				__ADD_COMMAND(cQueue, 8, val); // FR00
+				__ADD_COMMAND(cQueue, 2, 6); // BW06
+				break;
+			case 30:
+				__ADD_COMMAND(cQueue, 8, val); // FR00
+				__ADD_COMMAND(cQueue, 2, 5); // BW05
+				break;
+			case 40:
+				__ADD_COMMAND(cQueue, 8, val); // FR00
+				__ADD_COMMAND(cQueue, 2, 5); // BW05
+				break;
+			}
 		}
 
 	}
 	else if (aRxBuffer[0] == 'B' && aRxBuffer[1] == 'L') { // BL
-		switch (val) {
-		case 0:
-		case 20:
-			__ADD_COMMAND(cQueue, 1, 6); // FW06
-			__ADD_COMMAND(cQueue, 5, 0); // BL00
-			__ADD_COMMAND(cQueue, 1, 4); // FW04
-			break;
-		case 30:
-			__ADD_COMMAND(cQueue, 5, 0); // BL00
-			__ADD_COMMAND(cQueue, 2, 3); // BW03
-			break;
-		case 40:
-			break;
+		if (aRxBuffer[2] == '-' && aRxBuffer[3] == '-') {
+			manualMode = 1;
+			__ADD_COMMAND(cQueue, 5, 0); // BL manual
+		} else {
+			switch (val) {
+			case 0:
+			case 20:
+				__ADD_COMMAND(cQueue, 1, 6); // FW06
+				__ADD_COMMAND(cQueue, 9, val); // BL00
+				__ADD_COMMAND(cQueue, 1, 3); // FW03
+				break;
+			case 30:
+				__ADD_COMMAND(cQueue, 9, val); // BL00
+				__ADD_COMMAND(cQueue, 2, 3); // BW03
+				break;
+			case 40:
+				__ADD_COMMAND(cQueue, 9, val); // BL00
+				__ADD_COMMAND(cQueue, 1, 8); // FW08
+				break;
+			}
 		}
-
 	}
-	else if (aRxBuffer[0] == 'B' && aRxBuffer[1] == 'R') {
-		switch (val) {
-		case 0:
-		case 20:
-			__ADD_COMMAND(cQueue, 1, 6); // FW06
-			__ADD_COMMAND(cQueue, 6, 0); // BR00
-			break;
-		case 30:
-			__ADD_COMMAND(cQueue, 6, 0); // BR00
-			__ADD_COMMAND(cQueue, 2, 6); // BW06
-			break;
-		case 40:
-			break;
+	else if (aRxBuffer[0] == 'B' && aRxBuffer[1] == 'R') { // BR
+		if (aRxBuffer[2] == '-' && aRxBuffer[3] == '-') {
+			manualMode = 1;
+			__ADD_COMMAND(cQueue, 6, 0); // BR manual
+		} else {
+			switch (val) {
+			case 0:
+			case 20:
+				__ADD_COMMAND(cQueue, 1, 6); // FW06
+				__ADD_COMMAND(cQueue, 10, val); // BR00
+				break;
+			case 30:
+				__ADD_COMMAND(cQueue, 10, val); // BR00
+				__ADD_COMMAND(cQueue, 2, 6); // BW06
+				break;
+			case 40:
+				__ADD_COMMAND(cQueue, 10, val); // BR00
+				__ADD_COMMAND(cQueue, 2, 6); // BW06
+				break;
+			}
 		}
-
 	}
-//	else if (aRxBuffer[0] == 'S' && aRxBuffer[1] == 'T') task = 6; // stop
-	else if (aRxBuffer[0] == 'A') __ADD_COMMAND(cQueue, 88, val); //task = 88; // anti-clockwise rotation with variable
-	else if (aRxBuffer[0] == 'C') __ADD_COMMAND(cQueue, 89, val); //task = 89; // clockwise rotation with variable
-	else if (aRxBuffer[0] == 'R' && aRxBuffer[1] == 'N') __ADD_COMMAND(cQueue, 92, val); //task = 92; // change target angle (-ve)
-	else if (aRxBuffer[0] == 'R' && aRxBuffer[1] == 'P') __ADD_COMMAND(cQueue, 93, val);//task = 93; // change target angle (+ve)
-	else if (aRxBuffer[0] == 'D' && aRxBuffer[1] == 'D') __ADD_COMMAND(cQueue, 94, val);//task = 94; // set target distance
-	else if (aRxBuffer[0] == 'P' && aRxBuffer[1] == 'P') __ADD_COMMAND(cQueue, 95, val);//task = 95; // toggle pid controller
-	else if (aRxBuffer[0] == 'D' && aRxBuffer[1] == 'L') __ADD_COMMAND(cQueue, 96, val);//task = 96; // left duty test
-	else if (aRxBuffer[0] == 'D' && aRxBuffer[1] == 'R') __ADD_COMMAND(cQueue, 97, val);//task = 97; // right duty test
-	else if (aRxBuffer[0] == 'Q' && aRxBuffer[1] == 'Q') __ADD_COMMAND(cQueue, 98, val);//task = 98; // steering test
+	else if (aRxBuffer[0] == 'K' && aRxBuffer[1] == 'P') __ADD_COMMAND(cQueue, 85, val); // pid
+	else if (aRxBuffer[0] == 'K' && aRxBuffer[1] == 'I') __ADD_COMMAND(cQueue, 86, val); // pid
+	else if (aRxBuffer[0] == 'K' && aRxBuffer[1] == 'D') __ADD_COMMAND(cQueue, 87, val); // pid
+	else if (aRxBuffer[0] == 'A') __ADD_COMMAND(cQueue, 88, val); // anti-clockwise rotation with variable
+	else if (aRxBuffer[0] == 'C') __ADD_COMMAND(cQueue, 89, val); // clockwise rotation with variable
+	else if (aRxBuffer[0] == 'Q' && aRxBuffer[1] == 'T') __ADD_COMMAND(cQueue, 90, val); // forward turn test
+	else if (aRxBuffer[0] == 'X' && aRxBuffer[1] == 'T') __ADD_COMMAND(cQueue, 91, val); // backward turn test
+	else if (aRxBuffer[0] == 'R' && aRxBuffer[1] == 'N') __ADD_COMMAND(cQueue, 92, val); // change target angle (-ve)
+	else if (aRxBuffer[0] == 'R' && aRxBuffer[1] == 'P') __ADD_COMMAND(cQueue, 93, val); // change target angle (+ve)
+	else if (aRxBuffer[0] == 'D' && aRxBuffer[1] == 'D') __ADD_COMMAND(cQueue, 94, val); // set target distance
+	else if (aRxBuffer[0] == 'P' && aRxBuffer[1] == 'P') __ADD_COMMAND(cQueue, 95, val); // toggle pid controller
+	else if (aRxBuffer[0] == 'D' && aRxBuffer[1] == 'L') __ADD_COMMAND(cQueue, 96, val); // left duty test
+	else if (aRxBuffer[0] == 'D' && aRxBuffer[1] == 'R') __ADD_COMMAND(cQueue, 97, val); // right duty test
+	else if (aRxBuffer[0] == 'Q' && aRxBuffer[1] == 'Q') __ADD_COMMAND(cQueue, 98, val); // steering test
 
 	if (!__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
+		snprintf((char *)rxMsg, sizeof(rxMsg), "doing");
 		__READ_COMMAND(cQueue, curCmd);
-		UART_STATUS = 4;
-//		Run_Command(&curCmd);
 	}
 
 
@@ -867,7 +891,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef * huart) {
 }
 
 int clickOnce = 0;
-int targetRot = 30;
+int targetRot = 360;
 int targetD = 0;
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 	if (clickOnce) return;
@@ -876,12 +900,11 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 		manualMode = 0;
 
 //		targetD = targetD == 120 ? 0 : targetD + 5;
-//		__ADD_COMMAND(cQueue, 1, targetD);
-//		__READ_COMMAND(cQueue, curCmd);
-		// test gyro+accel
-//		tick = HAL_GetTick();
-		__ADD_COMMAND(cQueue,88, targetRot);
+		__ADD_COMMAND(cQueue, 1, targetD);
 		__READ_COMMAND(cQueue, curCmd);
+		// test gyro+accel
+//		__ADD_COMMAND(cQueue,1, 120);
+//		__READ_COMMAND(cQueue, curCmd);
 		targetRot = (targetRot + 15) % 375;
 //		HAL_TIM_Base_Start_IT(&htim10);
 	}
@@ -893,6 +916,7 @@ void motorStop() {
 	targetDist = 0; targetAngle = 0; yaw = 0;
 	positionNow = 0; angleNow = 0;
 	__SET_MOTOR_DUTY(&htim8, 0, 0);
+	__SET_SERVO_TURN(&htim1, 74);
 	ekSum = 0; ek1 = 0;
 }
 
@@ -905,17 +929,12 @@ char temp[20];
 void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 	if (htim != &htim10) return;
 
-	//complimentary filter
 	__Gyro_Read(&hi2c1, readGyroData, gyro);
 	angleNow += gyro[2] / GRYO_SENSITIVITY_SCALE_FACTOR_1000DPS * 0.01;
 
-//	snprintf(temp, 15, "angle: %5d\n", (int)angleNow);
-//	HAL_UART_Transmit(&huart3, (uint8_t *)temp, 15, 0xFFFF);
-
-	if (moveMode) {//turn
-		if (!manualMode && (
-			(targetAngle < 0 && angleNow <= targetAngle) || (targetAngle > 0 && angleNow >= targetAngle)
-		)) { // turn stop condition
+	if (moveMode) { // moveMode: turn
+		// stop condition
+		if (!manualMode && ((targetAngle < 0 && angleNow <= targetAngle) || (targetAngle > 0 && angleNow >= targetAngle))) {
 			__RESET_SERVO_TURN(&htim1);
 			motorStop();
 			if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
@@ -926,8 +945,8 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 			clickOnce = 0; // button click flag to be cleared once reach travel distance (from HAL_GPIO_EXTI_Callback)
 			return;
 		}
-	} else { // forward/backward
-		//test travel for targetDist cm and stop
+	} else { // moveMode: forward/backward
+		//stop condition
 		if (!manualMode && positionNow >= targetDist) { // forward/backward stop condition
 			__RESET_SERVO_TURN(&htim1);
 			motorStop();
@@ -948,10 +967,10 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 		// 0.015242cm per encoder tick = WHEEL_LENGTH / (PPR*4)
 		positionNow += (dist_dL + dist_dR) / 2 * 0.015242;
 
-		dir = __HAL_TIM_IS_TIM_COUNTING_DOWN(&htim2) ? 1 : -1; // use only one of the wheel to determine car direction
 		// drive straight calibration
 		if (PIDOn){
 			if (angleNow != 0) {
+				dir = __HAL_TIM_IS_TIM_COUNTING_DOWN(&htim2) ? 1 : -1; // use only one of the wheel to determine car direction
 				ekSum += angleNow;
 				correction = Kp * angleNow + Ki * ekSum + Kd * (ek1 - angleNow);
 				ek1 = angleNow;
@@ -961,7 +980,7 @@ void HAL_TIM_PeriodElapsedCallback(TIM_HandleTypeDef *htim) {
 		}
 	}
 
-
+	if (manualMode) osDelay(10);
 
 //	  uint8_t ch[20];
 //	 sprintf(ch,"time:%-6d\n", count);
@@ -983,19 +1002,11 @@ void defaultDisplayTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
-	  OLED_ShowString(0, 0, (char *) rxMsg);
-	  OLED_ShowString(0, 12, (char *) aRxBuffer);
-//	  snprintf(temp, sizeof(temp), "%3d|%3d|%3d\n", mag[0], mag[1], mag[2]);
-////  	  snprintf(ch, sizeof(ch), "h:%-1d|t:%-1d", cQueue.head,cQueue.tail);
-//  	  OLED_ShowString(0, 24, (char *) temp);
-
-//		snprintf(ch, sizeof(ch), "bf:%3d", (int)angleBefore);
-//		OLED_ShowString(0, 24, (char *) ch);
-		snprintf(ch, sizeof(ch), "af:%4d", (int) angleNow);
-		OLED_ShowString(0, 36, (char *) ch);
-//		snprintf(ch, sizeof(ch), "f:%3.6f", forceMag);
-//		OLED_ShowString(0, 48, (char *) ch);
-	  OLED_Refresh_Gram();
+	OLED_ShowString(0, 0, (char *) rxMsg);
+	OLED_ShowString(0, 12, (char *) aRxBuffer);
+//	snprintf(ch, sizeof(ch), "angle:%4d", (int) angleNow);
+//	OLED_ShowString(0, 24, (char *) ch);
+	OLED_Refresh_Gram();
 	osDelay(500);
   }
   /* USER CODE END 5 */
@@ -1041,42 +1052,45 @@ void runCmdTask(void *argument)
 	  			}
 	  		}
 	  		__SET_ENCODER_LAST_TICKS(&htim2, lastTick_L, &htim3, lastTick_R);
-	  		HAL_TIM_Base_Start_IT(&htim10);
 	  		__PEND_CURCMD(curCmd);
+	  		HAL_TIM_Base_Start_IT(&htim10);
+
 	  		 break;
-	  	 case 3: //FL
+	  	case 3: //FL manual
+		case 4: //FR manual
+		case 5: //BL manual
+		case 6: //BR manual
+			moveMode = 1;
+			__SET_CMD_CONFIG(cfgs[curCmd.index], &htim8, &htim1, targetAngle);
+			if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
+				__CLEAR_CURCMD(curCmd);
+				__ACK_TASK_DONE(&huart3, rxMsg);
+			}
+			else __READ_COMMAND(cQueue, curCmd);
+			__PEND_CURCMD(curCmd);
+			 HAL_TIM_Base_Start_IT(&htim10);
+
+			 break;
+	  	 case 7: // FL
+	  	 case 8: // FR
+	  	 case 9: // BL
+	  	 case 10: //BR
 	  		 moveMode = 1;
-	  		 curCmd.index += curCmd.value == 30 ? 4 : (curCmd.value == 40 ? 8 : 0);
-	  		 __SET_CMD_CONFIG(cfgs[curCmd.index], &htim8, &htim1, targetAngle);
+//	  		curCmd.index += curCmd.val == 30 ? 4 : (curCmd.val == 40 ? 8 : 0);
+	  		 __SET_CMD_CONFIG(cfgs[curCmd.index + (curCmd.val == 30 ? 4 : (curCmd.val == 40 ? 8 : 0))], &htim8, &htim1, targetAngle);
+	  		__PEND_CURCMD(curCmd);
 	  		 HAL_TIM_Base_Start_IT(&htim10);
-	  		 __PEND_CURCMD(curCmd);
 	  		 break;
-	  	 case 4: //FR
-	  		 moveMode = 1;
-	  		curCmd.index += curCmd.value == 30 ? 4 : (curCmd.value == 40 ? 8 : 0);
-	  		 __SET_CMD_CONFIG(cfgs[curCmd.index], &htim8, &htim1, targetAngle);
-	  		 HAL_TIM_Base_Start_IT(&htim10);
-	  		 __PEND_CURCMD(curCmd);
-	  		 break;
-	  	 case 5: //BL
-	  		 moveMode = 1;
-	  		curCmd.index += curCmd.value == 30 ? 4 : (curCmd.value == 40 ? 8 : 0);
-	  		 __SET_CMD_CONFIG(cfgs[curCmd.index], &htim8, &htim1, targetAngle);
-	  		 HAL_TIM_Base_Start_IT(&htim10);
-	  		 __PEND_CURCMD(curCmd);
-	  		 break;
-	  	 case 6: //BR
-	  		 moveMode = 1;
-	  		curCmd.index += curCmd.value == 30 ? 4 : (curCmd.value == 40 ? 8 : 0);
-	  		 __SET_CMD_CONFIG(cfgs[curCmd.index], &htim8, &htim1, targetAngle);
-	  		 HAL_TIM_Base_Start_IT(&htim10);
-	  		 __PEND_CURCMD(curCmd);
+	  	 case 85:
+	  	 case 86:
+	  	 case 87:
+	  		 if (curCmd.index == 85) Kp = curCmd.val * 100;
+	  		 else if (curCmd.index == 86) Ki = curCmd.val * 10;
+	  		 else if (curCmd.index == 87) Kd = curCmd.val * 10;
 	  		 break;
 	  	 case 88: // Axxx, rotate left by xxx degree
 	  	 case 89: // Cxxx, rotate right by xxx degree
 	  		 moveMode = 1;
-
-	  		 targetAngle = (curCmd.index - 88 ? -1 : 1) * curCmd.val; // -5 for offset
 	  		 __SET_SERVO_TURN_MAX(&htim1, curCmd.index - 88);
 	  		 __SET_MOTOR_DIRECTION(DIR_FORWARD);
 	  		 if (curCmd.index == 88) {
@@ -1089,6 +1103,14 @@ void runCmdTask(void *argument)
 
 	  		 HAL_TIM_Base_Start_IT(&htim10);
 	  		 __PEND_CURCMD(curCmd);
+	  		 break;
+	  	 case 90: //QT forward turn test
+	  	 case 91: //XT backward turn test
+	  		 moveMode = 1;
+	  		 __SET_MOTOR_DIRECTION(curCmd.index - 90? DIR_BACKWARD : DIR_FORWARD);
+	  		__SET_MOTOR_DUTY(&htim8, initDuty_L, initDuty_R);
+	  		HAL_TIM_Base_Start_IT(&htim10);
+	  		__PEND_CURCMD(curCmd);
 	  		 break;
 	  	 case 92: // RN, change stop angle -ve
 	  	 case 93: // RP, +ve
