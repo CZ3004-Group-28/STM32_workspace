@@ -56,7 +56,12 @@ extern "C" {
 #define SERVO_MIDDLE 74
 #define SERVO_RIGHT_MAX 115
 
-#define MAX_DUTY 1500
+#define MAX_DUTY 900
+
+#define IR_CONST_A 22923.42693
+#define IR_CONST_B 340.6757963
+
+#define __GET_DIST_FROM_OBSTACLE(raw) IR_CONST_A / (raw - IR_CONST_B)
 
 #define __ACK_TASK_DONE(_UART, msg) ({ \
 	snprintf((char *)msg, sizeof(msg) - 1, "done"); \

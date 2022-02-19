@@ -196,6 +196,7 @@ HAL_StatusTypeDef UART_STATUS;;
 enum TASK_TYPE curTask = TASK_NONE;
 
 // IR data
+uint32_t IR_data_acc = 0;
 uint32_t IR_data = 0;
 
 
@@ -203,6 +204,9 @@ uint32_t IR_data = 0;
 uint16_t curtask_tick = 0;
 uint16_t last_curTask_tick = 0;
 char temp[20];
+uint16_t sample_count = 150; // read data in 6.667Hz
+uint8_t curDist = 255;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -969,21 +973,20 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef * huart) {
 
 int clickOnce = 0;
 int targetRot = 360;
-int targetD = 0;
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 	if (clickOnce) return;
 	if (GPIO_Pin == SW1_Pin) {
 		clickOnce = 1;
 		manualMode = 0;
-
-//		targetD = targetD == 120 ? 0 : targetD + 5;
-		__ADD_COMMAND(cQueue, 1, targetD);
-		__READ_COMMAND(cQueue, curCmd);
-		// test gyro+accel
-//		__ADD_COMMAND(cQueue,1, 120);
+//
+//		__ADD_COMMAND(cQueue, 1, targetD);
 //		__READ_COMMAND(cQueue, curCmd);
-		targetRot = (targetRot + 15) % 375;
-		curTask = TASK_TURN;
+//		targetRot = (targetRot + 15) % 375;
+		curTask = TASK_ADC;
+		targetDist = 10;
+		HAL_ADC_Start(&hadc1);
+		__PEND_CURCMD(curCmd);
+//		HAL_UART_Transmit(&huart3, "click\n", 6, 0xFFFF);
 	}
 
 }
@@ -995,6 +998,7 @@ void motorStop() {
 	__SET_SERVO_TURN(&htim1, 74);
 	ekSum = 0; ek1 = 0;
 	curTask = TASK_NONE;
+	clickOnce = 0;
 }
 
 /* USER CODE END 4 */
@@ -1016,8 +1020,10 @@ void defaultDisplayTask(void *argument)
 	OLED_ShowString(0, 12, (char *) aRxBuffer);
 	snprintf(ch, sizeof(ch), "t:%-4d", curtask_tick);
 	OLED_ShowString(0, 24, (char *) ch);
-	snprintf(ch, sizeof(ch), "d:%-5d", IR_data);
+	snprintf(ch, sizeof(ch), "dist:%-3d", curDist);
 	OLED_ShowString(0, 36, (char *) ch);
+//	snprintf(ch, sizeof(ch), "d2:%-5d", IR_data2);
+//	OLED_ShowString(0, 48, (char *) ch);
 	OLED_Refresh_Gram();
 	osDelay(500);
   }
@@ -1096,7 +1102,9 @@ void runCmdTask(void *argument)
 	  		 __SET_SERVO_TURN_MAX(&htim1, curCmd.index - 11 ? 1 : 0);
 	  		 break;
 	  	 case 13: // OB, move forward until distance to obstacle
+	  		 targetDist = curCmd.val;
 	  		 curTask = TASK_ADC;
+	  		HAL_ADC_Start(&hadc1);
 	  		__PEND_CURCMD(curCmd);
 	  		 break;
 	  	 case 85:
@@ -1180,26 +1188,43 @@ void runCmdTask(void *argument)
 * @brief Function implementing the ADCTask thread.
 * @param argument: Not used
 * @retval None
+* When activate (curTask == TASK_ADC), function executes in 1MHz
 */
 /* USER CODE END Header_runADCTask */
+
 void runADCTask(void *argument)
 {
   /* USER CODE BEGIN runADCTask */
+	int dataPoint = 0;
   /* Infinite loop */
   for(;;)
   {
 	  if (curTask != TASK_ADC) osDelay(1000);
 	  else {
-		  HAL_ADC_Start(&hadc1);
-		  HAL_ADC_PollForConversion(&hadc1,20);
-		  IR_data = HAL_ADC_GetValue(&hadc1);
-		  curtask_tick = HAL_GetTick() - last_curTask_tick;
-		  last_curTask_tick = HAL_GetTick();
-//		  snprintf(temp, sizeof(temp) - 1, "IR:%-10d\n", (int) IR_data);
-//		  HAL_UART_Transmit(&huart3, (uint8_t *)temp, sizeof(temp), 0xFFFF);
-		  // stop condition
-		  // ...
-		  osDelay(10);
+		  IR_data_acc = 0;
+		  __SET_MOTOR_DUTY(&htim8, MAX_DUTY, MAX_DUTY);
+		  do {
+			  curDist = __GET_DIST_FROM_OBSTACLE(IR_data);
+			  HAL_ADC_Start(&hadc1);
+			  HAL_ADC_PollForConversion(&hadc1,20);
+			  IR_data_acc += HAL_ADC_GetValue(&hadc1);
+			  curtask_tick = HAL_GetTick() - last_curTask_tick;
+			  last_curTask_tick = HAL_GetTick();
+
+			  dataPoint = (dataPoint + 1) % sample_count;
+			  if (dataPoint == sample_count - 1) {
+				  IR_data = IR_data_acc / dataPoint;
+				  IR_data_acc = 0;
+				  __SET_MOTOR_DIRECTION(curDist > targetDist);
+			  }
+			  osDelay(1);
+		  } while (curDist != targetDist);
+
+		  __SET_MOTOR_DUTY(&htim8, 0, 0);
+		  HAL_ADC_Stop(&hadc1);
+		  __CLEAR_CURCMD(curCmd);
+		__ACK_TASK_DONE(&huart3, rxMsg);
+		curTask = TASK_NONE;
 	  }
 
   }
@@ -1233,7 +1258,6 @@ void runMoveTask(void *argument)
 					__ACK_TASK_DONE(&huart3, rxMsg);
 					curTask = TASK_NONE;
 				} else __READ_COMMAND(cQueue, curCmd);
-				clickOnce = 0; // button click flag to be cleared once reach travel distance (from HAL_GPIO_EXTI_Callback)
 			} else {
 				// Get moved distance of left/right wheels since last tick
 				__GET_ENCODER_TICK_DELTA(&htim2, lastTick_L, dist_dL);
@@ -1292,7 +1316,6 @@ void runTurnTask(void *argument)
 				__ACK_TASK_DONE(&huart3, rxMsg);
 			}
 			else __READ_COMMAND(cQueue, curCmd);
-			clickOnce = 0; // button click flag to be cleared once reach travel distance (from HAL_GPIO_EXTI_Callback)
 			curTask = TASK_NONE;
 		}
 
