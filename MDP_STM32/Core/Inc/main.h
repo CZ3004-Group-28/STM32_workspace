@@ -53,13 +53,68 @@ extern "C" {
 #define DIR_FORWARD 1
 #define DIR_BACKWARD 0
 #define SERVO_LEFT_MAX 50
-#define SERVO_MIDDLE 74
+//#define SERVO_MIDDLE_FORWARD 73.93
+#define SERVO_FORWARD_NO_PID 74
+//#define SERVO_MIDDLE_BACKWARD 75
 #define SERVO_RIGHT_MAX 115
-
-#define MAX_DUTY 900
 
 #define IR_CONST_A 22923.42693
 #define IR_CONST_B 340.6757963
+
+#define __PID_Config_Reset(cfg) ({ \
+	cfg.ek1 = 0; \
+	cfg.ekSum = 0; \
+})
+
+#define __PID_Angle_O(cfg, error, correction, dir, newDutyL, newDutyR) ({ \
+	correction = cfg.Kp * error + cfg.Ki * cfg.ekSum + cfg.Kd * (cfg.ek1 - error);\
+	cfg.ek1 = error; \
+	cfg.ekSum += error; \
+	correction = correction > 600 ? 600 : (correction < -600 ? -600 : correction); \
+	newDutyL = 1200 + correction*dir; \
+	newDutyR = 1200 - correction*dir; \
+})
+
+
+/*
+#define __PID_Angle(cfg, error, correction, dir, newDutyL, newDutyR) ({ \
+	cfg.ekSum += error; \
+	correction = cfg.Kp * error + cfg.Ki * cfg.ekSum + cfg.Kd * (cfg.ek1 - error); \
+	cfg.ek1 = error; \
+	correction = correction > 1000 ? 1000 : (correction < -1000 ? -1000 : correction); \
+	if (correction < 0) { \
+			newDutyL = dir ? MID_DUTY + correction : MID_DUTY - correction; \
+			newDutyR = dir ? MID_DUTY - correction : MID_DUTY + correction; \
+		} else { \
+			newDutyL = dir ? MID_DUTY + correction : MID_DUTY - correction; \
+			newDutyR = dir ? MID_DUTY - correction : MID_DUTY + correction; \
+		} \
+})
+*/
+/*
+#define __PID_Angle_Backward(cfg, error, correction, dir, newDutyL, newDutyR) ({ \
+	cfg.ekSum += error; \
+	correction = cfg.Kp*3 * error + (cfg.Ki) * cfg.ekSum + cfg.Kd * (cfg.ek1 - error); \
+	cfg.ek1 = error; \
+	correction = correction > 1300 ? 1300 : (correction < -1300 ? -1300 : correction); \
+	if (correction < 0) { \
+			newDutyL = MID_DUTY - correction*2; \
+			newDutyR = MID_DUTY + correction*2; \
+		} else { \
+			newDutyL = MID_DUTY; \
+			newDutyR = MID_DUTY + correction; \
+		} \
+})
+*/
+
+
+/*
+#define __PID_Speed(cfg, actual, target, newDutyL, newDutyR) ({ \
+	cfg.ekSum += target - actual; \
+	newDutyL *= 1 + (target - actual) / target * cfg.Kp; \
+	newDutyR *= 1 + (target - actual)/ target * cfg.Kp; \
+})
+*/
 
 #define __GET_DIST_FROM_OBSTACLE(raw) IR_CONST_A / (raw - IR_CONST_B)
 
@@ -81,19 +136,21 @@ extern "C" {
 })
 
 #define __RESET_SERVO_TURN(_TIMER) ({ \
-	(_TIMER)->Instance->CCR4 = SERVO_MIDDLE; \
-	osDelay(500); \
+	(_TIMER)->Instance->CCR4 = SERVO_LEFT_MAX; \
+	HAL_Delay(500);\
+	(_TIMER)->Instance->CCR4 = SERVO_FORWARD_NO_PID; \
+	HAL_Delay(500); \
 })
 
 #define __SET_SERVO_TURN_MAX(_TIMER, _DIR) ({ \
 	if (_DIR) (_TIMER)->Instance->CCR4 = SERVO_RIGHT_MAX; \
 	else (_TIMER)->Instance->CCR4 = SERVO_LEFT_MAX; \
-	osDelay(500); \
+	HAL_Delay(500); \
 })
 
 #define __SET_SERVO_TURN(_TIMER, AMT) ({ \
 	(_TIMER)->Instance->CCR4 = ((AMT) > SERVO_RIGHT_MAX) ? SERVO_RIGHT_MAX : ((AMT) < SERVO_LEFT_MAX ? SERVO_LEFT_MAX : (AMT));\
-	osDelay(500); \
+	HAL_Delay(500); \
 })
 
 #define __SET_CMD_CONFIG(cfg, _MTIMER, _STIMER, targetAngle) ({ \
@@ -153,9 +210,6 @@ extern "C" {
 	mag[1] = readMagData[3] << 8 | readMagData[2]; \
 	mag[2] = readMagData[5] << 8 | readMagData[4]; \
 	HAL_I2C_Mem_Read(_I2C, AK09918__I2C_SLAVE_ADDRESS << 1, AK09916__ST2__REGISTER, I2C_MEMADD_SIZE_8BIT, readMagData, 6,0xFFFF); \
-	mag[0] *= MAG_SENSITIVITY_SCALE_FACTOR; \
-	mag[1] *= MAG_SENSITIVITY_SCALE_FACTOR; \
-	mag[2] *= MAG_SENSITIVITY_SCALE_FACTOR; \
 })
 
 #define __Accel_Read(_I2C, readAccelData, accel) ({ \
@@ -170,6 +224,11 @@ extern "C" {
 	gyro[0] = readGyroData[0] << 8 | readGyroData[1]; \
 	gyro[1] = readGyroData[2] << 8 | readGyroData[3]; \
 	gyro[2] = readGyroData[4] << 8 | readGyroData[5]; \
+})
+
+#define __Gyro_Read_Z(_I2C, readGyroData, gyroZ) ({ \
+	HAL_I2C_Mem_Read(_I2C,ICM20948__I2C_SLAVE_ADDRESS_1 << 1, ICM20948__USER_BANK_0__GYRO_ZOUT_H__REGISTER, I2C_MEMADD_SIZE_8BIT, readGyroData, 2, 10); \
+	gyroZ = readGyroData[0] << 8 | readGyroData[1]; \
 })
 
 

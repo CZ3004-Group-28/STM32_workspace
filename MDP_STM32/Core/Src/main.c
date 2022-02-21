@@ -25,6 +25,7 @@
 #include "oled.h"
 #include "ICM20948.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <math.h>
 #include "ICM20948.h"
 /* USER CODE END Includes */
@@ -61,10 +62,10 @@ const osThreadAttr_t defaultTask_attributes = {
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityLow,
 };
-/* Definitions for runCommandTask */
-osThreadId_t runCommandTaskHandle;
-const osThreadAttr_t runCommandTask_attributes = {
-  .name = "runCommandTask",
+/* Definitions for commandTask */
+osThreadId_t commandTaskHandle;
+const osThreadAttr_t commandTask_attributes = {
+  .name = "commandTask",
   .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
@@ -89,8 +90,15 @@ const osThreadAttr_t turnTask_attributes = {
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
+/* Definitions for moveTaskNoPID */
+osThreadId_t moveTaskNoPIDHandle;
+const osThreadAttr_t moveTaskNoPID_attributes = {
+  .name = "moveTaskNoPID",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
 /* USER CODE BEGIN PV */
-uint8_t BUFFER_SIZE = 5;
+uint8_t RX_BUFFER_SIZE = 5;
 uint8_t aRxBuffer[10];
 
 typedef struct _command {
@@ -98,15 +106,15 @@ typedef struct _command {
 	uint16_t val;
 } Command;
 
+uint8_t CMD_BUFFER_SIZE = 12;
 typedef struct _commandQueue {
 	uint8_t head;
 	uint8_t tail;
 	uint8_t size;
-	Command buffer[4];
+	Command buffer[12];
 } CommandQueue;
 
 CommandQueue cQueue;
-
 
 Command curCmd;
 uint8_t rxMsg[16];
@@ -125,42 +133,46 @@ int lastTick_L, lastTick_R;
 //uint16_t sampling = 10L;
 //int targetTick = 33; // targetSpeed /WHEEL_LENGTH*PPR*4*sampling/1000
 
+uint16_t initDuty = 900;
 float initDuty_L = 1200;
 float initDuty_R = 1200;
 float targetDist = 0;
-float positionNow = 0;
+uint16_t posTickNow = 0;
+uint16_t targetTick = 0;
 
 //I2C
 int16_t targetAngle = 0;
 float angleNow = 0;
 int correction = 0;
-uint8_t readGyroData[6];
-uint8_t readAccelData[6];
-uint8_t readMagData[6];
-int16_t gyroYaw;
-int16_t accelPitch, accelRoll, accelYaw;
-int16_t gyro[3];
-int16_t accel[3];
-int16_t mag[3];
-float pitch, roll, yaw=0;
+uint8_t readGyroZData[2];
+int16_t gyroZ;
 
 // PID
-float ek = 0, ek1 = 0, ekSum = 0;
-float Kp=3000, Kd=0, Ki=0;
 uint8_t PIDOn = 1;
+uint16_t newDutyL, newDutyR;
+
+typedef struct _pidConfig {
+	float Kp;
+	float Ki;
+	float Kd;
+	float ek1;
+	float ekSum;
+} PIDConfig;
+
+PIDConfig pidConfigAngle;
 
 typedef struct _commandConfig {
 	uint16_t leftDuty;
 	uint16_t rightDuty;
-	uint8_t servoTurnVal;
-	int16_t targetAngle;
+	float servoTurnVal;
+	float targetAngle;
 	uint8_t direction;
 } CmdConfig;
 
 CmdConfig cfgs[19] = {
 	{0,0,74,0, DIR_FORWARD}, // STOP
-	{1200, 1200, 74, 0, DIR_FORWARD}, // FW00
-	{1200, 1200, 74, 0, DIR_BACKWARD}, // BW00
+	{1400, 1200, 74, 0, DIR_FORWARD}, // FW00
+	{1300, 1200 , 74, 0, DIR_BACKWARD}, // BW00
 
 	{800, 1200, 50, 0, DIR_FORWARD}, // FL--
 	{1200, 800, 115, 0, DIR_FORWARD}, // FR--
@@ -186,6 +198,7 @@ CmdConfig cfgs[19] = {
 
 enum TASK_TYPE{
 	TASK_MOVE,
+	TASK_MOVE_NO_PID,
 	TASK_TURN,
 	TASK_ADC,
 	TASK_NONE
@@ -195,6 +208,7 @@ HAL_StatusTypeDef UART_STATUS;;
 
 enum TASK_TYPE curTask = TASK_NONE;
 
+int angleDt = 0;
 // IR data
 uint32_t IR_data_acc = 0;
 uint32_t IR_data = 0;
@@ -205,8 +219,9 @@ uint16_t curtask_tick = 0;
 uint16_t last_curTask_tick = 0;
 char temp[20];
 uint16_t sample_count = 150; // read data in 6.667Hz
-uint8_t curDist = 255;
+uint8_t curObsDist = 255;
 
+int16_t gyroDtMax = 0, gyroDtMin = 0;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -224,10 +239,12 @@ void runCmdTask(void *argument);
 void runADCTask(void *argument);
 void runMoveTask(void *argument);
 void runTurnTask(void *argument);
+void runMoveTaskNoPID(void *argument);
 
 /* USER CODE BEGIN PFP */
 void motorStop();
-
+void PIDConfigInit(PIDConfig * cfg, const float Kp, const float Ki, const float Kd);
+void PIDConfigReset(PIDConfig * cfg);
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
@@ -271,7 +288,7 @@ int main(void)
   MX_ADC1_Init();
   /* USER CODE BEGIN 2 */
   OLED_Init();
-  ICM20948_init(&hi2c1,0,GYRO_FULL_SCALE_1000DPS,ACCEL_FULL_SCALE_2G);
+  ICM20948_init(&hi2c1,0,GYRO_FULL_SCALE_2000DPS,ACCEL_FULL_SCALE_2G);
 
   // initialise command queue
   curCmd.index = 100;
@@ -279,15 +296,19 @@ int main(void)
 
   cQueue.head = 0;
   cQueue.tail = 0;
-  cQueue.size = 4;
-  for (int i = 0; i < 4;i++) {
+  cQueue.size = CMD_BUFFER_SIZE;
+  for (int i = 0; i < CMD_BUFFER_SIZE;i++) {
 	  Command cmd;
 	  cmd.index = 100;
 	  cmd.val = 0;
 	  cQueue.buffer[i] = cmd;
   }
 
-  	HAL_UART_Receive_IT(&huart3, aRxBuffer,BUFFER_SIZE);
+//	PIDConfigInit(&pidConfigAngle, 2000.0, 0.0, 0.0);
+  	PIDConfigInit(&pidConfigAngle, 2.5, 0.0,0.8);
+//	PIDConfigInit(&pidConfigSpeed, 1.2, 0.0, 0.0);
+
+  	HAL_UART_Receive_IT(&huart3, aRxBuffer,RX_BUFFER_SIZE);
 
 	// servo motor turn
 	HAL_TIM_PWM_Start(&htim1, TIM_CHANNEL_4);
@@ -327,8 +348,8 @@ int main(void)
   /* creation of defaultTask */
   defaultTaskHandle = osThreadNew(defaultDisplayTask, NULL, &defaultTask_attributes);
 
-  /* creation of runCommandTask */
-  runCommandTaskHandle = osThreadNew(runCmdTask, NULL, &runCommandTask_attributes);
+  /* creation of commandTask */
+  commandTaskHandle = osThreadNew(runCmdTask, NULL, &commandTask_attributes);
 
   /* creation of ADCTask */
   ADCTaskHandle = osThreadNew(runADCTask, NULL, &ADCTask_attributes);
@@ -338,6 +359,9 @@ int main(void)
 
   /* creation of turnTask */
   turnTaskHandle = osThreadNew(runTurnTask, NULL, &turnTask_attributes);
+
+  /* creation of moveTaskNoPID */
+  moveTaskNoPIDHandle = osThreadNew(runMoveTaskNoPID, NULL, &moveTaskNoPID_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -958,7 +982,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef * huart) {
 
 	// clear aRx buffer
 	  __HAL_UART_FLUSH_DRREGISTER(&huart3);
-	  UART_STATUS = HAL_UART_Receive_IT(&huart3, aRxBuffer, BUFFER_SIZE);
+	  UART_STATUS = HAL_UART_Receive_IT(&huart3, aRxBuffer, RX_BUFFER_SIZE);
 
 //	  if (UART_STATUS != HAL_OK) {
 //		  HAL_UART_Transmit(&huart3, "fail UART_Rx", 12,0xFFFF);
@@ -973,32 +997,70 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef * huart) {
 
 int clickOnce = 0;
 int targetRot = 360;
+int targetD = 5;
+int targetTickRef = 0;
+uint8_t tempDir = 1 ;
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 	if (clickOnce) return;
 	if (GPIO_Pin == SW1_Pin) {
 		clickOnce = 1;
-		manualMode = 0;
 //
 //		__ADD_COMMAND(cQueue, 1, targetD);
 //		__READ_COMMAND(cQueue, curCmd);
 //		targetRot = (targetRot + 15) % 375;
-		curTask = TASK_ADC;
-		targetDist = 10;
-		HAL_ADC_Start(&hadc1);
-		__PEND_CURCMD(curCmd);
-//		HAL_UART_Transmit(&huart3, "click\n", 6, 0xFFFF);
+
+		// test IR dist
+//		targetDist = 10;
+//		__PEND_CURCMD(curCmd);
+//		curTask = TASK_ADC;
+
+		// test PID straight line
+		manualMode = 0;
+		__ADD_COMMAND(cQueue, tempDir, 130);
+		__READ_COMMAND(cQueue, curCmd);
+		tempDir = tempDir == 2 ? 1 : 2;
+
+		// test dist
+//		manualMode = 0;
+//		__ADD_COMMAND(cQueue, 1,targetD);
+//		targetD = (targetD + 5) % 125;
+//		__READ_COMMAND(cQueue, curCmd);
+
+
+		// test PID
+//		manualMode = 1;
+//		__ADD_COMMAND(cQueue, 1,0);
+//		__READ_COMMAND(cQueue, curCmd);
+
+		// test 10 step
+//		for (int i = 0; i < 10; i++) __ADD_COMMAND(cQueue, 2,10);
+//		__READ_COMMAND(cQueue, curCmd);
 	}
 
 }
 
 void motorStop() {
-	targetDist = 0; targetAngle = 0; yaw = 0;
-	positionNow = 0; angleNow = 0;
 	__SET_MOTOR_DUTY(&htim8, 0, 0);
-	__SET_SERVO_TURN(&htim1, 74);
-	ekSum = 0; ek1 = 0;
+	targetTick = 0; posTickNow = 0;
+	targetDist = 0; targetAngle = 0;
+	angleNow = 0;
+	correction = 0;
 	curTask = TASK_NONE;
+	PIDConfigReset(&pidConfigAngle);
 	clickOnce = 0;
+}
+
+void PIDConfigInit(PIDConfig * cfg, const float Kp, const float Ki, const float Kd) {
+	cfg->Kp = Kp;
+	cfg->Ki = Ki;
+	cfg->Kd = Kd;
+	cfg->ek1 = 0;
+	cfg->ekSum = 0;
+}
+
+void PIDConfigReset(PIDConfig * cfg) {
+	cfg->ek1 = 0;
+	cfg->ekSum = 0;
 }
 
 /* USER CODE END 4 */
@@ -1016,15 +1078,36 @@ void defaultDisplayTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
-	OLED_ShowString(0, 0, (char *) rxMsg);
-	OLED_ShowString(0, 12, (char *) aRxBuffer);
+//	OLED_ShowString(0, 0, (char *) rxMsg);
+//	OLED_ShowString(0, 12, (char *) aRxBuffer);
 	snprintf(ch, sizeof(ch), "t:%-4d", curtask_tick);
+	OLED_ShowString(0, 0, (char *) ch);
+
+	// target tick test
+//	snprintf(ch, sizeof(ch), "corr:%-6d", correction);
+//	OLED_ShowString(0, 12, (char *) ch);
+//	snprintf(ch, sizeof(ch), "posT:%-6d", posTickNow);
+//	OLED_ShowString(0, 24, (char *) ch);
+//	snprintf(ch, sizeof(ch), "ttick:%-6d", targetTick);
+//	OLED_ShowString(0, 36, (char *) ch);
+
+	// wheel speed test
+//	snprintf(ch, sizeof(ch), "corr:%-6d", correction);
+//	OLED_ShowString(0, 12, (char *) ch);
+//	snprintf(ch, sizeof(ch), "angle:%-3d", (int)angleNow);
+//	OLED_ShowString(0, 24, (char *) ch);
+	snprintf(ch, sizeof(ch), "tTick:%-7d", targetTickRef);
 	OLED_ShowString(0, 24, (char *) ch);
-	snprintf(ch, sizeof(ch), "dist:%-3d", curDist);
+	snprintf(ch, sizeof(ch), "tDist:%-4d", targetD);
 	OLED_ShowString(0, 36, (char *) ch);
-//	snprintf(ch, sizeof(ch), "d2:%-5d", IR_data2);
+//	snprintf(ch, sizeof(ch), "%-4d|%-4d|%-4d", (int)pidConfigAngle.Kp, (int) pidConfigAngle.Ki, (int) pidConfigAngle.Kd);
 //	OLED_ShowString(0, 48, (char *) ch);
-	OLED_Refresh_Gram();
+//	snprintf(ch, sizeof(ch), "tkDiff:%-5d", (int) ((dist_dL + dist_dR) / 2));
+//	OLED_ShowString(0, 24, (char *) ch);
+//	snprintf(ch, sizeof(ch), "d:%-5d|%-5d", newDutyL, newDutyR);
+//	OLED_ShowString(0, 36, (char *) ch);
+//	OLED_Refresh_Gram();
+//	HAL_UART_Transmit(&huart3, "test\n", 5, 0xFFFF);
 	osDelay(500);
   }
   /* USER CODE END 5 */
@@ -1056,22 +1139,24 @@ void runCmdTask(void *argument)
 	  		 break;
 	  	 case 1: //FW
 	  	 case 2: //BW
-	  		targetDist = manualMode ? 0 : (curCmd.val * DIST_M - DIST_C);
-
+  			 // curTask == TASK_MOVE enable entry to runMoveTask
+  			 // runMoveTask can only be interrupt by UART or EXTI
 	  		__SET_CMD_CONFIG(cfgs[curCmd.index], &htim8, &htim1, targetAngle);
+	  		curTask = TASK_MOVE;
+			last_curTask_tick = HAL_GetTick();
 	  		if (manualMode) {
 	  			if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
 	  				__CLEAR_CURCMD(curCmd);
 	  				__ACK_TASK_DONE(&huart3, rxMsg);
 	  			}
-	  			else {
-	  				__READ_COMMAND(cQueue, curCmd);
-	  			}
+	  		} else {
+	  			__SET_ENCODER_LAST_TICKS(&htim2, lastTick_L, &htim3, lastTick_R);
+	  			curTask = TASK_MOVE;
+	  			last_curTask_tick = HAL_GetTick();
+	  			targetTick = (float)curCmd.val / WHEEL_LENGTH * 1320;
+	  			targetTickRef = targetTick;
+	  			__PEND_CURCMD(curCmd);
 	  		}
-	  		__SET_ENCODER_LAST_TICKS(&htim2, lastTick_L, &htim3, lastTick_R);
-	  		__PEND_CURCMD(curCmd);
-//	  		HAL_TIM_Base_Start_IT(&htim10);
-	  		curTask = TASK_MOVE;
 	  		 break;
 	  	case 3: //FL manual
 		case 4: //FR manual
@@ -1102,17 +1187,17 @@ void runCmdTask(void *argument)
 	  		 __SET_SERVO_TURN_MAX(&htim1, curCmd.index - 11 ? 1 : 0);
 	  		 break;
 	  	 case 13: // OB, move forward until distance to obstacle
+	  		 __SET_MOTOR_DUTY(&htim8, 1400, 1200);
 	  		 targetDist = curCmd.val;
 	  		 curTask = TASK_ADC;
-	  		HAL_ADC_Start(&hadc1);
 	  		__PEND_CURCMD(curCmd);
 	  		 break;
 	  	 case 85:
 	  	 case 86:
 	  	 case 87:
-	  		 if (curCmd.index == 85) Kp = curCmd.val * 100;
-	  		 else if (curCmd.index == 86) Ki = curCmd.val * 10;
-	  		 else if (curCmd.index == 87) Kd = curCmd.val * 10;
+//	  		 if (curCmd.index == 85) Kp = curCmd.val * 100;
+//	  		 else if (curCmd.index == 86) Ki = curCmd.val * 10;
+//	  		 else if (curCmd.index == 87) Kd = curCmd.val * 10;
 	  		 break;
 	  	 case 88: // Axxx, rotate left by xxx degree
 	  	 case 89: // Cxxx, rotate right by xxx degree
@@ -1153,6 +1238,8 @@ void runCmdTask(void *argument)
 	  		 break;
 	  	 case 96: // DL, left duty test
 	  		 initDuty_L = curCmd.val * 100;
+//	  		initDuty = curCmd.val * 100;
+	  		__SET_MOTOR_DUTY(&htim8, curCmd.val * 100, curCmd.val * 100);
 	  		__ACK_TASK_DONE(&huart3, rxMsg);
 	  		 __CLEAR_CURCMD(curCmd);
 	  		 break;
@@ -1162,7 +1249,7 @@ void runCmdTask(void *argument)
 	  		 __CLEAR_CURCMD(curCmd);
 	  		 break;
 	  	 case 98: // QQ, steering test
-	  		 // angle 50-74-115
+	  		 // angle 50-75-115
 	  		 // argument 0-65
 	  		 __SET_SERVO_TURN(&htim1, SERVO_LEFT_MAX + curCmd.val);
 	  		__ACK_TASK_DONE(&huart3, rxMsg);
@@ -1171,7 +1258,6 @@ void runCmdTask(void *argument)
 	  	 case 99:
 	  		 break;
 	  	 case 100:
-	  		 curTask = TASK_NONE;
 	  		 break;
 	  	 default:
 	  //		 curCmd.index = 99;
@@ -1191,7 +1277,6 @@ void runCmdTask(void *argument)
 * When activate (curTask == TASK_ADC), function executes in 1MHz
 */
 /* USER CODE END Header_runADCTask */
-
 void runADCTask(void *argument)
 {
   /* USER CODE BEGIN runADCTask */
@@ -1202,29 +1287,33 @@ void runADCTask(void *argument)
 	  if (curTask != TASK_ADC) osDelay(1000);
 	  else {
 		  IR_data_acc = 0;
-		  __SET_MOTOR_DUTY(&htim8, MAX_DUTY, MAX_DUTY);
 		  do {
-			  curDist = __GET_DIST_FROM_OBSTACLE(IR_data);
+			  curtask_tick = HAL_GetTick() - last_curTask_tick;
+			  curObsDist = __GET_DIST_FROM_OBSTACLE(IR_data);
 			  HAL_ADC_Start(&hadc1);
 			  HAL_ADC_PollForConversion(&hadc1,20);
 			  IR_data_acc += HAL_ADC_GetValue(&hadc1);
-			  curtask_tick = HAL_GetTick() - last_curTask_tick;
-			  last_curTask_tick = HAL_GetTick();
+
 
 			  dataPoint = (dataPoint + 1) % sample_count;
 			  if (dataPoint == sample_count - 1) {
 				  IR_data = IR_data_acc / dataPoint;
 				  IR_data_acc = 0;
-				  __SET_MOTOR_DIRECTION(curDist > targetDist);
+				  __SET_MOTOR_DIRECTION(curObsDist > targetDist);
 			  }
+			  last_curTask_tick = HAL_GetTick();
 			  osDelay(1);
-		  } while (curDist != targetDist);
+		  } while (curObsDist != targetDist);
 
-		  __SET_MOTOR_DUTY(&htim8, 0, 0);
 		  HAL_ADC_Stop(&hadc1);
-		  __CLEAR_CURCMD(curCmd);
-		__ACK_TASK_DONE(&huart3, rxMsg);
-		curTask = TASK_NONE;
+		  __SET_MOTOR_DUTY(&htim8, 0, 0);
+		  curTask = TASK_NONE;
+
+		if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
+			__CLEAR_CURCMD(curCmd);
+			__ACK_TASK_DONE(&huart3, rxMsg);
+
+		} else __READ_COMMAND(cQueue, curCmd);
 	  }
 
   }
@@ -1236,7 +1325,13 @@ void runADCTask(void *argument)
 * @brief Function implementing the moveTask thread.
 * @param argument: Not used
 * @retval None
+* runMoveTask is a "greedy" task
+* once start (when curTask == TASK_MOVE), it does not allow other task to preempt (it does not have osDelay)
+* which mean OLED content remain fixed until runMoveTask is done (defaultDisplayTask blocked)
+* only UART and EXTI IRQ can preempt runMoveTask
+*
 */
+
 /* USER CODE END Header_runMoveTask */
 void runMoveTask(void *argument)
 {
@@ -1246,43 +1341,40 @@ void runMoveTask(void *argument)
   {
 	  if (curTask != TASK_MOVE) osDelay(1000);
 	  else {
-		  __Gyro_Read(&hi2c1, readGyroData, gyro);
-		  angleNow += gyro[2] / GRYO_SENSITIVITY_SCALE_FACTOR_1000DPS * 0.01;
+		  do {
+			  if (curTask != TASK_MOVE) break;
 
-		  //movetask's stop condition
-			if (!manualMode && positionNow >= targetDist) { // forward/backward stop condition
-				__RESET_SERVO_TURN(&htim1);
-				motorStop();
-				if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
-					__CLEAR_CURCMD(curCmd);
-					__ACK_TASK_DONE(&huart3, rxMsg);
-					curTask = TASK_NONE;
-				} else __READ_COMMAND(cQueue, curCmd);
-			} else {
-				// Get moved distance of left/right wheels since last tick
-				__GET_ENCODER_TICK_DELTA(&htim2, lastTick_L, dist_dL);
-				__GET_ENCODER_TICK_DELTA(&htim3, lastTick_R, dist_dR);
-				__SET_ENCODER_LAST_TICKS(&htim2, lastTick_L, &htim3, lastTick_R);
-
+			  __Gyro_Read_Z(&hi2c1, readGyroZData, gyroZ);
+			  curtask_tick = HAL_GetTick() - last_curTask_tick;
+			  if (curtask_tick >= 10) { // read travelled distance every 10ms
+				  // check if reach target distance
+					__GET_ENCODER_TICK_DELTA(&htim2, lastTick_L, dist_dL);
+					__GET_ENCODER_TICK_DELTA(&htim3, lastTick_R, dist_dR);
+					__SET_ENCODER_LAST_TICKS(&htim2, lastTick_L, &htim3, lastTick_R);
 				// 0.015242cm per encoder tick = WHEEL_LENGTH / (PPR*4)
-				positionNow += (dist_dL + dist_dR) / 2 * 0.015242;
-				curtask_tick = HAL_GetTick() - last_curTask_tick;
-				last_curTask_tick = HAL_GetTick();
-				// drive straight calibration
-				if (PIDOn){
-					if (angleNow != 0) {
-						dir = __HAL_TIM_IS_TIM_COUNTING_DOWN(&htim2) ? 1 : -1; // use only one of the wheel to determine car direction
-						ekSum += angleNow;
-						correction = Kp * angleNow + Ki * ekSum + Kd * (ek1 - angleNow);
-						ek1 = angleNow;
-						correction = correction > 600 ? 600 : (correction < -600 ? -600 : correction);
-						__SET_MOTOR_DUTY(&htim8, MAX_DUTY + correction*dir, MAX_DUTY - correction*dir);
-					}
-				}
-			}
-		  osDelay(10);
-	  }
+  //				positionNow += (dist_dL + dist_dR) / 2 * 0.015242;
+					posTickNow += (dist_dL + dist_dR) / 2.0; // use just left wheel to check travelled distance
 
+					angleNow += ((gyroZ >= -4 && gyroZ <= 11) ? 0 : gyroZ); //GRYO_SENSITIVITY_SCALE_FACTOR_2000DPS;
+					dir = __HAL_TIM_IS_TIM_COUNTING_DOWN(&htim2) ? 1 : 0; // use only one of the wheel to determine car direction
+					__PID_Angle_O(pidConfigAngle, angleNow, correction, dir, newDutyL, newDutyR);
+					__SET_MOTOR_DUTY(&htim8, newDutyL, newDutyR);
+
+					last_curTask_tick = HAL_GetTick();
+			  }
+
+		  } while (manualMode || posTickNow < targetTick);
+
+		  motorStop();
+		  last_curTask_tick = 0;
+		  clickOnce = 0;
+//		  __RESET_SERVO_TURN(&htim1);
+
+		if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
+			__CLEAR_CURCMD(curCmd);
+			__ACK_TASK_DONE(&huart3, rxMsg);
+		} else __READ_COMMAND(cQueue, curCmd);
+	  }
   }
   /* USER CODE END runMoveTask */
 }
@@ -1302,28 +1394,91 @@ void runTurnTask(void *argument)
   {
 	  if (curTask != TASK_TURN) osDelay(1000);
 	  else {
-		  __Gyro_Read(&hi2c1, readGyroData, gyro);
-		  angleNow += gyro[2] / GRYO_SENSITIVITY_SCALE_FACTOR_1000DPS * 0.01;
-		  curtask_tick = HAL_GetTick() - last_curTask_tick;
-		  last_curTask_tick = HAL_GetTick();
+		  while (manualMode ||
+				 ((targetAngle < 0 && angleNow <= targetAngle) || (targetAngle > 0 && angleNow >= targetAngle))
+				) {
+			  __Gyro_Read_Z(&hi2c1, readGyroZData, gyroZ);
+			  last_curTask_tick = HAL_GetTick();
+			  osDelay(10);
+			  curtask_tick = HAL_GetTick() - last_curTask_tick;
+//			  angleNow += gyroZ / GRYO_SENSITIVITY_SCALE_FACTOR_1000DPS * 0.01;
+			  angleNow += (abs(gyroZ) < 20 ? 0 : gyroZ) / GRYO_SENSITIVITY_SCALE_FACTOR_1000DPS * curtask_tick / 1000;
+		  }
 
-		  // turn task's stop condition
-		  if (!manualMode && ((targetAngle < 0 && angleNow <= targetAngle) || (targetAngle > 0 && angleNow >= targetAngle))) {
-			__RESET_SERVO_TURN(&htim1);
-			motorStop();
-			if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
+		  last_curTask_tick = 0;
+		  if (!manualMode) {
+			  __RESET_SERVO_TURN(&htim1);
+			  if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
 				__CLEAR_CURCMD(curCmd);
 				__ACK_TASK_DONE(&huart3, rxMsg);
 			}
 			else __READ_COMMAND(cQueue, curCmd);
-			curTask = TASK_NONE;
-		}
+		  }
 
-		  osDelay(10);
+
+		  // turn task's stop condition
+//		  if (!manualMode && ((targetAngle < 0 && angleNow <= targetAngle) || (targetAngle > 0 && angleNow >= targetAngle))) {
+//			__RESET_SERVO_TURN(&htim1);
+//			motorStop();
+//			if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
+//				__CLEAR_CURCMD(curCmd);
+//				__ACK_TASK_DONE(&huart3, rxMsg);
+//			}
+//			else __READ_COMMAND(cQueue, curCmd);
+//			curTask = TASK_NONE;
+//		}
+
+
 	  }
 
   }
   /* USER CODE END runTurnTask */
+}
+
+/* USER CODE BEGIN Header_runMoveTaskNoPID */
+/**
+* @brief Function implementing the moveTaskNoPID thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_runMoveTaskNoPID */
+void runMoveTaskNoPID(void *argument)
+{
+  /* USER CODE BEGIN runMoveTaskNoPID */
+  /* Infinite loop */
+  for(;;)
+  {
+	  if (curTask != TASK_MOVE_NO_PID) osDelay(1000);
+	  else {
+
+		  do {
+			  if (curTask != TASK_MOVE_NO_PID) break;
+
+			  curtask_tick = HAL_GetTick() - last_curTask_tick;
+			  if (curtask_tick >= 10) { // read travelled distance every 10ms
+				  // check if reach target distance
+					__GET_ENCODER_TICK_DELTA(&htim2, lastTick_L, dist_dL);
+					__GET_ENCODER_TICK_DELTA(&htim3, lastTick_R, dist_dR);
+					__SET_ENCODER_LAST_TICKS(&htim2, lastTick_L, &htim3, lastTick_R);
+					posTickNow += (dist_dL + dist_dR) / 2.0;
+
+				last_curTask_tick = HAL_GetTick();
+			  }
+
+		  } while (posTickNow < targetTick);
+
+		  motorStop();
+		  last_curTask_tick = 0;
+		  clickOnce = 0;
+//		  __RESET_SERVO_TURN(&htim1);
+
+		if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
+			__CLEAR_CURCMD(curCmd);
+			__ACK_TASK_DONE(&huart3, rxMsg);
+		} else __READ_COMMAND(cQueue, curCmd);
+	  }
+  }
+  /* USER CODE END runMoveTaskNoPID */
 }
 
 /**

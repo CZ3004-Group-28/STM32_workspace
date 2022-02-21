@@ -142,11 +142,11 @@ void ICM20948_init(I2C_HandleTypeDef * hi2c, uint8_t const selectI2cAddress, uin
 			ICM20948__USER_BANK_2__GYRO_CONFIG_1__REGISTER,
 			3 << GYRO_DLPFCFG_BIT|selectGyroSensitivity << BIT_1|EN_GRYO_DLPF << GYRO_FCHOICE_BIT);
 
-	status = _ICM20948_WriteByte(
-			hi2c,
-			selectI2cAddress,
-			ICM20948__USER_BANK_2__TEMP_CONFIG__REGISTER,
-			0x03); // Don't understand how this works
+//	status = _ICM20948_WriteByte(
+//			hi2c,
+//			selectI2cAddress,
+//			ICM20948__USER_BANK_2__TEMP_CONFIG__REGISTER,
+//			0x03); // Don't understand how this works
 
 	status = _ICM20948_WriteByte(
 			hi2c,
@@ -154,25 +154,25 @@ void ICM20948_init(I2C_HandleTypeDef * hi2c, uint8_t const selectI2cAddress, uin
 			ICM20948__USER_BANK_2__GYRO_SMPLRT_DIV__REGISTER,
 			0x04); // Don't understand how this works
 
-	status = _ICM20948_WriteByte(
-			hi2c,
-			selectI2cAddress,
-			ICM20948__USER_BANK_2__ACCEL_CONFIG__REGISTER,
-			0x03<< BIT_3|selectAccelSensitivity << BIT_1|0x01 << BIT_0);
+//	status = _ICM20948_WriteByte(
+//			hi2c,
+//			selectI2cAddress,
+//			ICM20948__USER_BANK_2__ACCEL_CONFIG__REGISTER,
+//			0x03<< BIT_3|selectAccelSensitivity << BIT_1|0x01 << BIT_0);
+////
+//	status = _ICM20948_WriteByte(
+//			hi2c,
+//			selectI2cAddress,
+//			ICM20948__USER_BANK_2__ACCEL_SMPLRT_DIV_2__REGISTER,
+//			0x04); // Don't understand how this works
 
-	status = _ICM20948_WriteByte(
-			hi2c,
-			selectI2cAddress,
-			ICM20948__USER_BANK_2__ACCEL_SMPLRT_DIV_2__REGISTER,
-			0x04); // Don't understand how this works
 
-
-	status = _ICM20948_SelectUserBank(hi2c, selectI2cAddress, USER_BANK_3);
-	status = _ICM20948_WriteByte(
-				hi2c,
-				selectI2cAddress,
-				ICM20948__USER_BANK_3__I2C_MST_ODR_CONFIG__REGISTER,
-				0x04);
+//	status = _ICM20948_SelectUserBank(hi2c, selectI2cAddress, USER_BANK_3);
+//	status = _ICM20948_WriteByte(
+//				hi2c,
+//				selectI2cAddress,
+//				ICM20948__USER_BANK_3__I2C_MST_ODR_CONFIG__REGISTER,
+//				0x04);
 
 	status = _ICM20948_SelectUserBank(hi2c, selectI2cAddress, USER_BANK_0);
 //
@@ -230,7 +230,7 @@ void ICM20948_readGyroscope_Z(I2C_HandleTypeDef * hi2c, uint8_t const selectI2cA
 	_ICM20948_BrustRead(hi2c, selectI2cAddress, ICM20948__USER_BANK_0__GYRO_ZOUT_H__REGISTER, 2, readGyroDataZ);
 
 	*gyroZ = readGyroDataZ[0]<<8 | readGyroDataZ[1];
-	*gyroZ /= GRYO_SENSITIVITY_SCALE_FACTOR_1000DPS;
+	*gyroZ /= GRYO_SENSITIVITY_SCALE_FACTOR_250DPS;
 }
 
 void ICM20948_readAccelerometer_allAxises(I2C_HandleTypeDef * hi2c, uint8_t const selectI2cAddress, uint8_t const selectAccelSensitivity, int16_t readings[3]) {
