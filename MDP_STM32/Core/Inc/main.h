@@ -48,18 +48,19 @@ extern "C" {
 #define WHEEL_LENGTH 20.12
 #define PPR 330
 // distance calibration params
-#define DIST_M 1.133145885
-#define DIST_C 2.419816382
+#define DIST_M 1.14117166
+#define DIST_C 1.232534228
+
 #define DIR_FORWARD 1
 #define DIR_BACKWARD 0
+
 #define SERVO_LEFT_MAX 50
-//#define SERVO_MIDDLE_FORWARD 73.93
 #define SERVO_FORWARD_NO_PID 74
-//#define SERVO_MIDDLE_BACKWARD 75
 #define SERVO_RIGHT_MAX 115
 
 #define IR_CONST_A 22923.42693
 #define IR_CONST_B 340.6757963
+#define IR_SAMPLE 150
 
 #define __PID_Config_Reset(cfg) ({ \
 	cfg.ek1 = 0; \
@@ -84,7 +85,11 @@ extern "C" {
 })
 */
 
-#define __GET_DIST_FROM_OBSTACLE(raw) IR_CONST_A / (raw - IR_CONST_B)
+#define __ON_TASK_END(_MTimer, prevTask, curTask) ({ \
+	__SET_MOTOR_DUTY(_MTimer, 0, 0); \
+	prevTask = curTask; \
+	curTask = TASK_NONE; \
+})
 
 #define __ACK_TASK_DONE(_UART, msg) ({ \
 	snprintf((char *)msg, sizeof(msg) - 1, "done"); \
@@ -176,7 +181,7 @@ extern "C" {
 	_CQ.head = (_CQ.head + 1) % _CQ.size; \
 })
 
-
+/*
 // Magnetometer read access
 #define __Mag_Read(_I2C, readMagData, mag) ({ \
 	HAL_I2C_Mem_Read(_I2C, AK09918__I2C_SLAVE_ADDRESS << 1, AK09916__XOUT_H__REGISTER, I2C_MEMADD_SIZE_8BIT, readMagData, 6,0xFFFF); \
@@ -192,6 +197,7 @@ extern "C" {
 	accel[1] = readAccelData[2] << 8 | readAccelData[3]; \
 	accel[2] = readAccelData[4] << 8 | readAccelData[5]; \
 })
+*/
 
 #define __Gyro_Read(_I2C, readGyroData, gyro) ({ \
 	HAL_I2C_Mem_Read(_I2C,ICM20948__I2C_SLAVE_ADDRESS_1 << 1, ICM20948__USER_BANK_0__GYRO_XOUT_H__REGISTER, I2C_MEMADD_SIZE_8BIT, readGyroData, 6, 10); \
