@@ -149,7 +149,7 @@ int16_t gyroZ;
 
 // PID
 uint8_t PIDOn = 1;
-uint16_t newDutyL, newDutyR;
+uint16_t newDutyL = 1200, newDutyR = 1200;
 
 typedef struct _pidConfig {
 	float Kp;
@@ -171,8 +171,10 @@ typedef struct _commandConfig {
 
 CmdConfig cfgs[19] = {
 	{0,0,74,0, DIR_FORWARD}, // STOP
-	{1400, 1200, 74, 0, DIR_FORWARD}, // FW00
-	{1300, 1200 , 74, 0, DIR_BACKWARD}, // BW00
+//	{1400, 1200, 74, 0, DIR_FORWARD}, // FW00
+//	{1300, 1200 , 74, 0, DIR_BACKWARD}, // BW00
+	{1200, 1200, 74, 0, DIR_FORWARD}, // FW00
+	{1200, 1200 , 74, 0, DIR_BACKWARD}, // BW00
 
 	{800, 1200, 50, 0, DIR_FORWARD}, // FL--
 	{1200, 800, 115, 0, DIR_FORWARD}, // FR--
@@ -198,15 +200,16 @@ CmdConfig cfgs[19] = {
 
 enum TASK_TYPE{
 	TASK_MOVE,
+	TASK_MOVE_BACKWARD,
 	TASK_MOVE_NO_PID,
 	TASK_TURN,
 	TASK_ADC,
 	TASK_NONE
 };
 
-HAL_StatusTypeDef UART_STATUS;;
+HAL_StatusTypeDef UART_STATUS;
 
-enum TASK_TYPE curTask = TASK_NONE;
+enum TASK_TYPE curTask = TASK_NONE, prevTask = TASK_NONE;
 
 int angleDt = 0;
 // IR data
@@ -1033,7 +1036,7 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 //		__READ_COMMAND(cQueue, curCmd);
 
 		// test 10 step
-//		for (int i = 0; i < 10; i++) __ADD_COMMAND(cQueue, 2,10);
+//		for (int i = 0; i < 10; i++) __ADD_COMMAND(cQueue, 1,10);
 //		__READ_COMMAND(cQueue, curCmd);
 	}
 
@@ -1043,10 +1046,12 @@ void motorStop() {
 	__SET_MOTOR_DUTY(&htim8, 0, 0);
 	targetTick = 0; posTickNow = 0;
 	targetDist = 0; targetAngle = 0;
-	angleNow = 0;
+
 	correction = 0;
+	prevTask = curTask;
 	curTask = TASK_NONE;
-	PIDConfigReset(&pidConfigAngle);
+//	angleNow = 0;
+//	PIDConfigReset(&pidConfigAngle);
 	clickOnce = 0;
 }
 
@@ -1141,9 +1146,22 @@ void runCmdTask(void *argument)
 	  	 case 2: //BW
   			 // curTask == TASK_MOVE enable entry to runMoveTask
   			 // runMoveTask can only be interrupt by UART or EXTI
-	  		__SET_CMD_CONFIG(cfgs[curCmd.index], &htim8, &htim1, targetAngle);
-	  		curTask = TASK_MOVE;
+
+	  		// only reset angle calibration if previous move is not the same FW/BW
+	  		__SET_CMD_CONFIG_WODUTY(cfgs[curCmd.index], &htim1, targetAngle);
+
+	  		 if ((prevTask == TASK_MOVE && curCmd.index != 1) ||
+	  			 (prevTask == TASK_MOVE_BACKWARD && curCmd.index != 2)) {
+	  			angleNow = 0;
+				PIDConfigReset(&pidConfigAngle);
+				__SET_MOTOR_DUTY(&htim8, cfgs[curCmd.index].leftDuty, cfgs[curCmd.index].rightDuty);
+	  		 } else {
+	  			__SET_MOTOR_DUTY(&htim8, newDutyL, newDutyR);
+	  		 }
+//	  		__SET_CMD_CONFIG(cfgs[curCmd.index], &htim8, &htim1, targetAngle);
+	  		curTask = curCmd.index == 1 ? TASK_MOVE : TASK_MOVE_BACKWARD;
 			last_curTask_tick = HAL_GetTick();
+
 	  		if (manualMode) {
 	  			if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
 	  				__CLEAR_CURCMD(curCmd);
@@ -1151,8 +1169,6 @@ void runCmdTask(void *argument)
 	  			}
 	  		} else {
 	  			__SET_ENCODER_LAST_TICKS(&htim2, lastTick_L, &htim3, lastTick_R);
-	  			curTask = TASK_MOVE;
-	  			last_curTask_tick = HAL_GetTick();
 	  			targetTick = (float)curCmd.val / WHEEL_LENGTH * 1320;
 	  			targetTickRef = targetTick;
 	  			__PEND_CURCMD(curCmd);
@@ -1169,7 +1185,6 @@ void runCmdTask(void *argument)
 			}
 			else __READ_COMMAND(cQueue, curCmd);
 			__PEND_CURCMD(curCmd);
-			// HAL_TIM_Base_Start_IT(&htim10);
 
 			 break;
 	  	 case 7: // FL
@@ -1339,24 +1354,27 @@ void runMoveTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
-	  if (curTask != TASK_MOVE) osDelay(1000);
+	  if (curTask != TASK_MOVE && curTask != TASK_MOVE_BACKWARD) osDelay(1000);
 	  else {
 		  do {
-			  if (curTask != TASK_MOVE) break;
+			  if (curTask != TASK_MOVE && curTask != TASK_MOVE_BACKWARD) break;
 
 			  __Gyro_Read_Z(&hi2c1, readGyroZData, gyroZ);
 			  curtask_tick = HAL_GetTick() - last_curTask_tick;
 			  if (curtask_tick >= 10) { // read travelled distance every 10ms
-				  // check if reach target distance
+				  if (!manualMode) {
+					  // check if reach target distance
 					__GET_ENCODER_TICK_DELTA(&htim2, lastTick_L, dist_dL);
 					__GET_ENCODER_TICK_DELTA(&htim3, lastTick_R, dist_dR);
 					__SET_ENCODER_LAST_TICKS(&htim2, lastTick_L, &htim3, lastTick_R);
 				// 0.015242cm per encoder tick = WHEEL_LENGTH / (PPR*4)
-  //				positionNow += (dist_dL + dist_dR) / 2 * 0.015242;
+	//				positionNow += (dist_dL + dist_dR) / 2 * 0.015242;
 					posTickNow += (dist_dL + dist_dR) / 2.0; // use just left wheel to check travelled distance
+				  }
+				  dir = __HAL_TIM_IS_TIM_COUNTING_DOWN(&htim2) ? 1 : -1; // use only one of the wheel to determine car direction
 
+				  // straight line movement calibration
 					angleNow += ((gyroZ >= -4 && gyroZ <= 11) ? 0 : gyroZ); //GRYO_SENSITIVITY_SCALE_FACTOR_2000DPS;
-					dir = __HAL_TIM_IS_TIM_COUNTING_DOWN(&htim2) ? 1 : 0; // use only one of the wheel to determine car direction
 					__PID_Angle_O(pidConfigAngle, angleNow, correction, dir, newDutyL, newDutyR);
 					__SET_MOTOR_DUTY(&htim8, newDutyL, newDutyR);
 

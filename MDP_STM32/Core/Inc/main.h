@@ -77,38 +77,6 @@ extern "C" {
 
 
 /*
-#define __PID_Angle(cfg, error, correction, dir, newDutyL, newDutyR) ({ \
-	cfg.ekSum += error; \
-	correction = cfg.Kp * error + cfg.Ki * cfg.ekSum + cfg.Kd * (cfg.ek1 - error); \
-	cfg.ek1 = error; \
-	correction = correction > 1000 ? 1000 : (correction < -1000 ? -1000 : correction); \
-	if (correction < 0) { \
-			newDutyL = dir ? MID_DUTY + correction : MID_DUTY - correction; \
-			newDutyR = dir ? MID_DUTY - correction : MID_DUTY + correction; \
-		} else { \
-			newDutyL = dir ? MID_DUTY + correction : MID_DUTY - correction; \
-			newDutyR = dir ? MID_DUTY - correction : MID_DUTY + correction; \
-		} \
-})
-*/
-/*
-#define __PID_Angle_Backward(cfg, error, correction, dir, newDutyL, newDutyR) ({ \
-	cfg.ekSum += error; \
-	correction = cfg.Kp*3 * error + (cfg.Ki) * cfg.ekSum + cfg.Kd * (cfg.ek1 - error); \
-	cfg.ek1 = error; \
-	correction = correction > 1300 ? 1300 : (correction < -1300 ? -1300 : correction); \
-	if (correction < 0) { \
-			newDutyL = MID_DUTY - correction*2; \
-			newDutyR = MID_DUTY + correction*2; \
-		} else { \
-			newDutyL = MID_DUTY; \
-			newDutyR = MID_DUTY + correction; \
-		} \
-})
-*/
-
-
-/*
 #define __PID_Speed(cfg, actual, target, newDutyL, newDutyR) ({ \
 	cfg.ekSum += target - actual; \
 	newDutyL *= 1 + (target - actual) / target * cfg.Kp; \
@@ -159,6 +127,12 @@ extern "C" {
 	__SET_MOTOR_DIRECTION(cfg.direction); \
 	__SET_MOTOR_DUTY(_MTIMER, cfg.leftDuty, cfg.rightDuty); \
 })
+
+#define __SET_CMD_CONFIG_WODUTY(cfg, _STIMER, targetAngle) ({ \
+	__SET_SERVO_TURN(_STIMER, cfg.servoTurnVal); \
+	targetAngle = cfg.targetAngle; \
+	__SET_MOTOR_DIRECTION(cfg.direction); \
+}) \
 
 #define __CLEAR_CURCMD(cmd) ({ \
 	cmd.index = 100; \
