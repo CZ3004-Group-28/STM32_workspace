@@ -55,19 +55,61 @@ extern "C" {
 #define DIR_BACKWARD 0
 
 #define SERVO_LEFT_MAX 50
-#define SERVO_FORWARD_NO_PID 74
+#define SERVO_FORWARD 74
 #define SERVO_RIGHT_MAX 115
 
-#define IR_CONST_A 22923.42693
-#define IR_CONST_B 340.6757963
-#define IR_SAMPLE 150
+//#define IR_CONST_A 22923.42693
+//#define IR_CONST_B 340.6757963
+#define IR_CONST_A 25644.81557
+#define IR_CONST_B 260.4233354
+#define IR_SAMPLE 100
+
+#define __SET_MOTOR_DIRECTION(DIR) ({ \
+	HAL_GPIO_WritePin(GPIOA, AIN2_Pin, ((DIR) ? GPIO_PIN_RESET : GPIO_PIN_SET)); \
+	HAL_GPIO_WritePin(GPIOA, AIN1_Pin, ((DIR) ? GPIO_PIN_SET: GPIO_PIN_RESET)); \
+	HAL_GPIO_WritePin(GPIOA, BIN2_Pin, ((DIR) ? GPIO_PIN_RESET: GPIO_PIN_SET)); \
+	HAL_GPIO_WritePin(GPIOA, BIN1_Pin, ((DIR) ? GPIO_PIN_SET: GPIO_PIN_RESET)); \
+})
+
+#define __RESET_SERVO_TURN(_TIMER) ({ \
+	(_TIMER)->Instance->CCR4 = SERVO_FORWARD; \
+	HAL_Delay(500); \
+})
+
+#define __SET_SERVO_TURN_MAX(_TIMER, _DIR) ({ \
+	if (_DIR) (_TIMER)->Instance->CCR4 = SERVO_RIGHT_MAX; \
+	else (_TIMER)->Instance->CCR4 = SERVO_LEFT_MAX; \
+	HAL_Delay(500); \
+})
+
+#define __SET_SERVO_TURN(_TIMER, AMT) ({ \
+	(_TIMER)->Instance->CCR4 = ((AMT) > SERVO_RIGHT_MAX) ? SERVO_RIGHT_MAX : ((AMT) < SERVO_LEFT_MAX ? SERVO_LEFT_MAX : (AMT));\
+	HAL_Delay(500); \
+})
 
 #define __PID_Config_Reset(cfg) ({ \
 	cfg.ek1 = 0; \
 	cfg.ekSum = 0; \
 })
 
-#define __PID_Angle_O(cfg, error, correction, dir, newDutyL, newDutyR) ({ \
+#define __Gyro_Read_Z(_I2C, readGyroData, gyroZ) ({ \
+	HAL_I2C_Mem_Read(_I2C,ICM20948__I2C_SLAVE_ADDRESS_1 << 1, ICM20948__USER_BANK_0__GYRO_ZOUT_H__REGISTER, I2C_MEMADD_SIZE_8BIT, readGyroData, 2, 10); \
+	gyroZ = readGyroData[0] << 8 | readGyroData[1]; \
+})
+
+#define __ADC_Read_Dist(_ADC, dataPoint, IR_data_raw_acc, curObsDist, targetDist, curObsTick) ({ \
+	HAL_ADC_Start(_ADC); \
+	HAL_ADC_PollForConversion(_ADC,20); \
+	IR_data_raw_acc += HAL_ADC_GetValue(_ADC); \
+	dataPoint = (dataPoint + 1) % IR_SAMPLE; \
+	if (dataPoint == IR_SAMPLE - 1) { \
+		curObsDist = IR_CONST_A / (IR_data_raw_acc / dataPoint - IR_CONST_B); \
+		curObsTick = IR_data_raw_acc / dataPoint; \
+		IR_data_raw_acc = 0; \
+	} \
+})
+
+#define __PID_Angle(cfg, error, correction, dir, newDutyL, newDutyR) ({ \
 	correction = cfg.Kp * error + cfg.Ki * cfg.ekSum + cfg.Kd * (cfg.ek1 - error);\
 	cfg.ek1 = error; \
 	cfg.ekSum += error; \
@@ -75,7 +117,6 @@ extern "C" {
 	newDutyL = 1200 + correction*dir; \
 	newDutyR = 1200 - correction*dir; \
 })
-
 
 /*
 #define __PID_Speed(cfg, actual, target, newDutyL, newDutyR) ({ \
@@ -99,31 +140,6 @@ extern "C" {
 #define __SET_MOTOR_DUTY(_TIMER, DUTY_L, DUTY_R)({ \
 	(_TIMER)->Instance->CCR1 = DUTY_L; \
 	(_TIMER)->Instance->CCR2 = DUTY_R; \
-})
-
-#define __SET_MOTOR_DIRECTION(DIR) ({ \
-	HAL_GPIO_WritePin(GPIOA, AIN2_Pin, ((DIR) ? GPIO_PIN_RESET : GPIO_PIN_SET)); \
-	HAL_GPIO_WritePin(GPIOA, AIN1_Pin, ((DIR) ? GPIO_PIN_SET: GPIO_PIN_RESET)); \
-	HAL_GPIO_WritePin(GPIOA, BIN2_Pin, ((DIR) ? GPIO_PIN_RESET: GPIO_PIN_SET)); \
-	HAL_GPIO_WritePin(GPIOA, BIN1_Pin, ((DIR) ? GPIO_PIN_SET: GPIO_PIN_RESET)); \
-})
-
-#define __RESET_SERVO_TURN(_TIMER) ({ \
-	(_TIMER)->Instance->CCR4 = SERVO_LEFT_MAX; \
-	HAL_Delay(500);\
-	(_TIMER)->Instance->CCR4 = SERVO_FORWARD_NO_PID; \
-	HAL_Delay(500); \
-})
-
-#define __SET_SERVO_TURN_MAX(_TIMER, _DIR) ({ \
-	if (_DIR) (_TIMER)->Instance->CCR4 = SERVO_RIGHT_MAX; \
-	else (_TIMER)->Instance->CCR4 = SERVO_LEFT_MAX; \
-	HAL_Delay(500); \
-})
-
-#define __SET_SERVO_TURN(_TIMER, AMT) ({ \
-	(_TIMER)->Instance->CCR4 = ((AMT) > SERVO_RIGHT_MAX) ? SERVO_RIGHT_MAX : ((AMT) < SERVO_LEFT_MAX ? SERVO_LEFT_MAX : (AMT));\
-	HAL_Delay(500); \
 })
 
 #define __SET_CMD_CONFIG(cfg, _MTIMER, _STIMER, targetAngle) ({ \
@@ -179,36 +195,6 @@ extern "C" {
 	_CQ.buffer[_CQ.head].index = TASK_INDEX; \
 	_CQ.buffer[_CQ.head].val = TASK_VAL; \
 	_CQ.head = (_CQ.head + 1) % _CQ.size; \
-})
-
-/*
-// Magnetometer read access
-#define __Mag_Read(_I2C, readMagData, mag) ({ \
-	HAL_I2C_Mem_Read(_I2C, AK09918__I2C_SLAVE_ADDRESS << 1, AK09916__XOUT_H__REGISTER, I2C_MEMADD_SIZE_8BIT, readMagData, 6,0xFFFF); \
-	mag[0] = readMagData[1] << 8 | readMagData[0]; \
-	mag[1] = readMagData[3] << 8 | readMagData[2]; \
-	mag[2] = readMagData[5] << 8 | readMagData[4]; \
-	HAL_I2C_Mem_Read(_I2C, AK09918__I2C_SLAVE_ADDRESS << 1, AK09916__ST2__REGISTER, I2C_MEMADD_SIZE_8BIT, readMagData, 6,0xFFFF); \
-})
-
-#define __Accel_Read(_I2C, readAccelData, accel) ({ \
-	HAL_I2C_Mem_Read(_I2C, ICM20948__I2C_SLAVE_ADDRESS_1 << 1, ICM20948__USER_BANK_0__ACCEL_XOUT_H__REGISTER, I2C_MEMADD_SIZE_8BIT, readAccelData, 6, 10); \
-	accel[0] = readAccelData[0] << 8 | readAccelData[1]; \
-	accel[1] = readAccelData[2] << 8 | readAccelData[3]; \
-	accel[2] = readAccelData[4] << 8 | readAccelData[5]; \
-})
-*/
-
-#define __Gyro_Read(_I2C, readGyroData, gyro) ({ \
-	HAL_I2C_Mem_Read(_I2C,ICM20948__I2C_SLAVE_ADDRESS_1 << 1, ICM20948__USER_BANK_0__GYRO_XOUT_H__REGISTER, I2C_MEMADD_SIZE_8BIT, readGyroData, 6, 10); \
-	gyro[0] = readGyroData[0] << 8 | readGyroData[1]; \
-	gyro[1] = readGyroData[2] << 8 | readGyroData[3]; \
-	gyro[2] = readGyroData[4] << 8 | readGyroData[5]; \
-})
-
-#define __Gyro_Read_Z(_I2C, readGyroData, gyroZ) ({ \
-	HAL_I2C_Mem_Read(_I2C,ICM20948__I2C_SLAVE_ADDRESS_1 << 1, ICM20948__USER_BANK_0__GYRO_ZOUT_H__REGISTER, I2C_MEMADD_SIZE_8BIT, readGyroData, 2, 10); \
-	gyroZ = readGyroData[0] << 8 | readGyroData[1]; \
 })
 
 
