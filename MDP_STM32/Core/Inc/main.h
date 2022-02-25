@@ -182,9 +182,10 @@ extern "C" {
 // write at head(add command), remove at tail (read command)
 // head == tail implies empty queue
 //
-#define __READ_COMMAND(_CQ, CMD) ({ \
+#define __READ_COMMAND(_CQ, CMD, msg) ({ \
 	CMD = _CQ.buffer[_CQ.tail]; \
 	_CQ.tail = (_CQ.tail + 1) % _CQ.size; \
+	snprintf((char *)msg, sizeof(msg) - 1, "doing"); \
 })
 
 #define __COMMAND_QUEUE_IS_FULL(_CQ) (_CQ.head + 1) % _CQ.size == _CQ.tail
