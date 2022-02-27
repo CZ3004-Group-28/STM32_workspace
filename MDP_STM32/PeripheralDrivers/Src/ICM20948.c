@@ -109,7 +109,7 @@ uint8_t ICM20948_isI2cAddress2(I2C_HandleTypeDef * hi2c) {
 	return 0;
 }
 
-void ICM20948_init(I2C_HandleTypeDef * hi2c, uint8_t const selectI2cAddress, uint8_t const selectGyroSensitivity, uint8_t const selectAccelSensitivity) {
+void ICM20948_init(I2C_HandleTypeDef * hi2c, uint8_t const selectI2cAddress, uint8_t const selectGyroSensitivity) {
 	HAL_StatusTypeDef status = HAL_OK;
 
 	status = _ICM20948_SelectUserBank(hi2c, selectI2cAddress, USER_BANK_0);
@@ -127,12 +127,18 @@ void ICM20948_init(I2C_HandleTypeDef * hi2c, uint8_t const selectI2cAddress, uin
 			selectI2cAddress,
 			ICM20948__USER_BANK_0__PWR_MGMT_1__REGISTER,
 			ICM20948_AUTO_SELECT_CLOCK);
-
 	/* status = _ICM20948_WriteByte(
 			hi2c,
 			selectI2cAddress,
 			ICM20948__USER_BANK_0__PWR_MGMT_2__REGISTER,
 			ICM20948_DISABLE_SENSORS); */ // For some reason this needs to be tested
+
+	// disable accelerometer
+	status = _ICM20948_WriteByte(
+				hi2c,
+				selectI2cAddress,
+				ICM20948__USER_BANK_0__PWR_MGMT_2__REGISTER,
+				0x38);
 
 	status = _ICM20948_SelectUserBank(hi2c, selectI2cAddress, USER_BANK_2);
 
@@ -167,13 +173,6 @@ void ICM20948_init(I2C_HandleTypeDef * hi2c, uint8_t const selectI2cAddress, uin
 //			0x04); // Don't understand how this works
 
 
-//	status = _ICM20948_SelectUserBank(hi2c, selectI2cAddress, USER_BANK_3);
-//	status = _ICM20948_WriteByte(
-//				hi2c,
-//				selectI2cAddress,
-//				ICM20948__USER_BANK_3__I2C_MST_ODR_CONFIG__REGISTER,
-//				0x04);
-
 	status = _ICM20948_SelectUserBank(hi2c, selectI2cAddress, USER_BANK_0);
 //
 	status = _ICM20948_WriteByte(
@@ -182,7 +181,7 @@ void ICM20948_init(I2C_HandleTypeDef * hi2c, uint8_t const selectI2cAddress, uin
 			ICM20948__USER_BANK_0__INT_PIN_CFG__REGISTER,
 			0x02); // Don't understand how this works
 
-	status = _AK09918_WriteByte(hi2c, AK09916__CNTL2__REGISTER, 0x08);
+//	status = _AK09918_WriteByte(hi2c, AK09916__CNTL2__REGISTER, 0x08);
 }
 
 void ICM20948_readGyroscope_allAxises(I2C_HandleTypeDef * hi2c, uint8_t const selectI2cAddress, uint8_t const selectGyroSensitivity, int16_t readings[3]) {

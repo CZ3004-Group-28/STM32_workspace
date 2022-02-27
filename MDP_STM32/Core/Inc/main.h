@@ -93,18 +93,17 @@ extern "C" {
 })
 
 #define __Gyro_Read_Z(_I2C, readGyroData, gyroZ) ({ \
-	HAL_I2C_Mem_Read(_I2C,ICM20948__I2C_SLAVE_ADDRESS_1 << 1, ICM20948__USER_BANK_0__GYRO_ZOUT_H__REGISTER, I2C_MEMADD_SIZE_8BIT, readGyroData, 2, 10); \
+	HAL_I2C_Mem_Read(_I2C,ICM20948__I2C_SLAVE_ADDRESS_1 << 1, ICM20948__USER_BANK_0__GYRO_ZOUT_H__REGISTER, I2C_MEMADD_SIZE_8BIT, readGyroData, 2, 0xFFFF); \
 	gyroZ = readGyroData[0] << 8 | readGyroData[1]; \
 })
 
-#define __ADC_Read_Dist(_ADC, dataPoint, IR_data_raw_acc, curObsDist, targetDist, curObsTick) ({ \
+#define __ADC_Read_Dist(_ADC, dataPoint, IR_data_raw_acc, curObsDist) ({ \
 	HAL_ADC_Start(_ADC); \
 	HAL_ADC_PollForConversion(_ADC,20); \
 	IR_data_raw_acc += HAL_ADC_GetValue(_ADC); \
 	dataPoint = (dataPoint + 1) % IR_SAMPLE; \
 	if (dataPoint == IR_SAMPLE - 1) { \
 		curObsDist = IR_CONST_A / (IR_data_raw_acc / dataPoint - IR_CONST_B); \
-		curObsTick = IR_data_raw_acc / dataPoint; \
 		IR_data_raw_acc = 0; \
 	} \
 })
