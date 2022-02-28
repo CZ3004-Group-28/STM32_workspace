@@ -48,8 +48,10 @@ extern "C" {
 #define WHEEL_LENGTH 20.12
 #define PPR 330
 // distance calibration params
-#define DIST_M 1.14117166
-#define DIST_C 1.232534228
+//#define DIST_M 1.14117166
+//#define DIST_C 1.232534228
+#define DIST_M 0.781849919
+#define DIST_C 0.804738779
 
 #define DIR_FORWARD 1
 #define DIR_BACKWARD 0
@@ -62,7 +64,8 @@ extern "C" {
 //#define IR_CONST_B 340.6757963
 #define IR_CONST_A 25644.81557
 #define IR_CONST_B 260.4233354
-#define IR_SAMPLE 100
+//#define IR_SAMPLE 100
+#define IR_SAMPLE 1500
 
 #define __SET_MOTOR_DIRECTION(DIR) ({ \
 	HAL_GPIO_WritePin(GPIOA, AIN2_Pin, ((DIR) ? GPIO_PIN_RESET : GPIO_PIN_SET)); \
@@ -97,13 +100,14 @@ extern "C" {
 	gyroZ = readGyroData[0] << 8 | readGyroData[1]; \
 })
 
-#define __ADC_Read_Dist(_ADC, dataPoint, IR_data_raw_acc, curObsDist) ({ \
+#define __ADC_Read_Dist(_ADC, dataPoint, IR_data_raw_acc, obsDist, obsTick) ({ \
 	HAL_ADC_Start(_ADC); \
 	HAL_ADC_PollForConversion(_ADC,20); \
 	IR_data_raw_acc += HAL_ADC_GetValue(_ADC); \
 	dataPoint = (dataPoint + 1) % IR_SAMPLE; \
 	if (dataPoint == IR_SAMPLE - 1) { \
-		curObsDist = IR_CONST_A / (IR_data_raw_acc / dataPoint - IR_CONST_B); \
+		obsDist = IR_CONST_A / (IR_data_raw_acc / dataPoint - IR_CONST_B); \
+		obsTick = IR_data_raw_acc / dataPoint; \
 		IR_data_raw_acc = 0; \
 	} \
 })
