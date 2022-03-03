@@ -45,13 +45,24 @@ extern "C" {
 
 /* Exported macro ------------------------------------------------------------*/
 /* USER CODE BEGIN EM */
-#define WHEEL_LENGTH 20.12
+#define WHEEL_LENGTH 20
 #define PPR 330
 // distance calibration params
-//#define DIST_M 1.14117166
-//#define DIST_C 1.232534228
-#define DIST_M 0.781849919
-#define DIST_C 0.804738779
+//#define DIST_SLOW_M 1.14117166
+//#define DIST_SLOW_C 1.232534228
+#define SPEED_MODE_SLOW 0
+#define SPEED_MODE_FAST 1
+
+#define DIST_SLOW_M 1.150067316
+#define DIST_SLOW_C 0.965311399
+
+#define INIT_DUTY_SLOW_L 1200
+#define INIT_DUTY_SLOW_R 1200
+#define DUTY_SLOW_ADJ_RANGE 600
+
+#define INIT_DUTY_FAST_L 4000
+#define INIT_DUTY_FAST_R 4000
+#define DUTY_FAST_ADJ_RANGE 2000
 
 #define DIR_FORWARD 1
 #define DIR_BACKWARD 0
@@ -64,8 +75,20 @@ extern "C" {
 //#define IR_CONST_B 340.6757963
 #define IR_CONST_A 25644.81557
 #define IR_CONST_B 260.4233354
-//#define IR_SAMPLE 100
-#define IR_SAMPLE 1500
+#define IR_SAMPLE 100
+
+#define MIN_SPEED_SCALE 0.3 // INIT_DUTY_SLOW_L / INIT_DUTY_FAST_L
+
+#define SERVO_TURN_TIME 300
+
+#define __GET_TARGETTICK(dist, targetTick) ({ \
+	targetTick = (((dist) * DIST_SLOW_M - DIST_SLOW_C) / WHEEL_LENGTH * 1320) - 10; \
+})
+
+#define __Delay_us_TIM4(_TIMER4, time) ({ \
+	__HAL_TIM_SET_COUNTER(_TIMER4, 0); \
+	while (__HAL_TIM_GET_COUNTER(_TIMER4) < time); \
+})
 
 #define __SET_MOTOR_DIRECTION(DIR) ({ \
 	HAL_GPIO_WritePin(GPIOA, AIN2_Pin, ((DIR) ? GPIO_PIN_RESET : GPIO_PIN_SET)); \
@@ -76,18 +99,18 @@ extern "C" {
 
 #define __RESET_SERVO_TURN(_TIMER) ({ \
 	(_TIMER)->Instance->CCR4 = SERVO_FORWARD; \
-	HAL_Delay(500); \
+	HAL_Delay(SERVO_TURN_TIME); \
 })
 
 #define __SET_SERVO_TURN_MAX(_TIMER, _DIR) ({ \
 	if (_DIR) (_TIMER)->Instance->CCR4 = SERVO_RIGHT_MAX; \
 	else (_TIMER)->Instance->CCR4 = SERVO_LEFT_MAX; \
-	HAL_Delay(500); \
+	HAL_Delay(SERVO_TURN_TIME); \
 })
 
 #define __SET_SERVO_TURN(_TIMER, AMT) ({ \
 	(_TIMER)->Instance->CCR4 = ((AMT) > SERVO_RIGHT_MAX) ? SERVO_RIGHT_MAX : ((AMT) < SERVO_LEFT_MAX ? SERVO_LEFT_MAX : (AMT));\
-	HAL_Delay(500); \
+	HAL_Delay(SERVO_TURN_TIME); \
 })
 
 #define __PID_Config_Reset(cfg) ({ \
@@ -112,13 +135,22 @@ extern "C" {
 	} \
 })
 
-#define __PID_Angle(cfg, error, correction, dir, newDutyL, newDutyR) ({ \
-	correction = cfg.Kp * error + cfg.Ki * cfg.ekSum + cfg.Kd * (cfg.ek1 - error);\
-	cfg.ek1 = error; \
-	cfg.ekSum += error; \
-	correction = correction > 600 ? 600 : (correction < -600 ? -600 : correction); \
-	newDutyL = 1200 + correction*dir; \
-	newDutyR = 1200 - correction*dir; \
+#define __PID_Angle_SLOW(cfg, error, correction, dir, newDutyL, newDutyR) ({ \
+	correction = (cfg).Kp * error + (cfg).Ki * (cfg).ekSum + (cfg).Kd * ((cfg).ek1 - error);\
+	(cfg).ek1 = error; \
+	(cfg).ekSum += error; \
+	correction = correction > DUTY_SLOW_ADJ_RANGE ? DUTY_SLOW_ADJ_RANGE : (correction < -DUTY_SLOW_ADJ_RANGE ? -DUTY_SLOW_ADJ_RANGE : correction); \
+	newDutyL = INIT_DUTY_SLOW_L + correction*dir; \
+	newDutyR = INIT_DUTY_SLOW_R - correction*dir; \
+})
+
+#define __PID_Angle_FAST(cfg, error, correction, dir, newDutyL, newDutyR) ({ \
+	correction = (cfg).Kp * error + (cfg).Ki * (cfg).ekSum + (cfg).Kd * ((cfg).ek1 - error);\
+	(cfg).ek1 = error; \
+	(cfg).ekSum += error; \
+	correction = correction > DUTY_FAST_ADJ_RANGE ? DUTY_FAST_ADJ_RANGE : (correction < -DUTY_FAST_ADJ_RANGE ? -DUTY_FAST_ADJ_RANGE : correction); \
+	newDutyL = INIT_DUTY_FAST_L + correction*dir; \
+	newDutyR = INIT_DUTY_FAST_R - correction*dir; \
 })
 
 /*
@@ -146,16 +178,16 @@ extern "C" {
 })
 
 #define __SET_CMD_CONFIG(cfg, _MTIMER, _STIMER, targetAngle) ({ \
-	__SET_SERVO_TURN(_STIMER, cfg.servoTurnVal); \
-	targetAngle = cfg.targetAngle; \
-	__SET_MOTOR_DIRECTION(cfg.direction); \
-	__SET_MOTOR_DUTY(_MTIMER, cfg.leftDuty, cfg.rightDuty); \
+	__SET_SERVO_TURN(_STIMER, (cfg).servoTurnVal); \
+	targetAngle = (cfg).targetAngle; \
+	__SET_MOTOR_DIRECTION((cfg).direction); \
+	__SET_MOTOR_DUTY(_MTIMER, (cfg).leftDuty, (cfg).rightDuty); \
 })
 
 #define __SET_CMD_CONFIG_WODUTY(cfg, _STIMER, targetAngle) ({ \
-	__SET_SERVO_TURN(_STIMER, cfg.servoTurnVal); \
-	targetAngle = cfg.targetAngle; \
-	__SET_MOTOR_DIRECTION(cfg.direction); \
+	__SET_SERVO_TURN(_STIMER, (cfg).servoTurnVal); \
+	targetAngle = (cfg).targetAngle; \
+	__SET_MOTOR_DIRECTION((cfg).direction); \
 }) \
 
 #define __CLEAR_CURCMD(cmd) ({ \
@@ -167,18 +199,23 @@ extern "C" {
 	cmd.index = 99; \
 })
 
-#define __SET_ENCODER_LAST_TICKS(_TIMER_L, LAST_TICK_L, _TIMER_R, LAST_TICK_R) ({ \
-	LAST_TICK_L = __HAL_TIM_GET_COUNTER(_TIMER_L); \
-	LAST_TICK_R = __HAL_TIM_GET_COUNTER(_TIMER_R); \
+#define __SET_ENCODER_LAST_TICK(_TIMER, LAST_TICK) ({ \
+	LAST_TICK = __HAL_TIM_GET_COUNTER(_TIMER); \
+})
+
+#define __SET_ENCODER_LAST_TICK_L_R(_TIMER_L, LAST_TICK_L, _TIMER_R, LAST_TICK_R) ({ \
+	__SET_ENCODER_LAST_TICKS(_TIMER_L, LAST_TICK_L); \
+	__SET_ENCODER_LAST_TICKS(_TIMER_R, LAST_TICK_R); \
 })
 
 #define __GET_ENCODER_TICK_DELTA(_TIMER, LAST_TICK, _DIST) ({ \
-	int CUR_TICK = __HAL_TIM_GET_COUNTER(_TIMER); \
+	uint32_t CUR_TICK = __HAL_TIM_GET_COUNTER(_TIMER); \
 	if (__HAL_TIM_IS_TIM_COUNTING_DOWN(_TIMER)) { \
 		_DIST = (CUR_TICK <= LAST_TICK) ? LAST_TICK - CUR_TICK : (65535 - CUR_TICK) + LAST_TICK; \
 	} else { \
 		_DIST = (CUR_TICK >= LAST_TICK) ? CUR_TICK - LAST_TICK : (65535 - LAST_TICK) + CUR_TICK; \
 	} \
+	LAST_TICK = CUR_TICK; \
 })
 
 // FIFO
