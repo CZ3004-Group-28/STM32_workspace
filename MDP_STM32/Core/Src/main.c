@@ -68,7 +68,7 @@ const osThreadAttr_t oledTask_attributes = {
 osThreadId_t commandTaskHandle;
 const osThreadAttr_t commandTask_attributes = {
   .name = "commandTask",
-  .stack_size = 512 * 4,
+  .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* Definitions for ADCTask */
@@ -148,6 +148,20 @@ const osThreadAttr_t BRTask_attributes = {
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
+/* Definitions for fastestPathV2 */
+osThreadId_t fastestPathV2Handle;
+const osThreadAttr_t fastestPathV2_attributes = {
+  .name = "fastestPathV2",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
+/* Definitions for batteryTask */
+osThreadId_t batteryTaskHandle;
+const osThreadAttr_t batteryTask_attributes = {
+  .name = "batteryTask",
+  .stack_size = 128 * 4,
+  .priority = (osPriority_t) osPriorityNormal,
+};
 /* USER CODE BEGIN PV */
 uint8_t RX_BUFFER_SIZE = 5;
 uint8_t aRxBuffer[10];
@@ -173,15 +187,12 @@ char ch[16];
 
 uint8_t manualMode = 0;
 
-float initDuty_L = 1200;
-float initDuty_R = 1200;
-
 // PID
 float targetAngle = 0;
 float angleNow = 0;
 uint8_t readGyroZData[2];
 int16_t gyroZ;
-uint16_t newDutyL = 1200, newDutyR = 1200;
+uint16_t newDutyL, newDutyR;
 uint32_t last_curTask_tick = 0;
 
 float targetDist = 0;
@@ -198,7 +209,7 @@ typedef struct _pidConfig {
 	float ekSum;
 } PIDConfig;
 
-PIDConfig pid1200, pid2500;
+PIDConfig pid1200, pid4000;
 
 typedef struct _commandConfig {
 	uint16_t leftDuty;
@@ -220,8 +231,6 @@ typedef struct _commandConfig {
 
 CmdConfig cfgs[19] = {
 	{0,0,74,0, DIR_FORWARD}, // STOP
-//	{1400, 1200, 74, 0, DIR_FORWARD}, // FW00
-//	{1300, 1200 , 74, 0, DIR_BACKWARD}, // BW00
 	{1200, 1200, 74, 0, DIR_FORWARD}, // FW00
 	{1200, 1200, 74, 0, DIR_BACKWARD}, // BW00
 
@@ -239,9 +248,6 @@ CmdConfig cfgs[19] = {
 	{1500, 1500, 108, -86.5, DIR_FORWARD}, // FR30
 	{1500, 1500, 51, -87.5, DIR_BACKWARD}, // BL30
 	{1500, 1100, 115, 88, DIR_BACKWARD}, // BR30
-
-//	{2000, 2000, 53.5, 87.5, DIR_FORWARD}, // FL30
-//	{2000, 2000, 109, -86.5, DIR_FORWARD}, // FR30
 };
 
 enum TASK_TYPE{
@@ -256,23 +262,27 @@ enum TASK_TYPE{
 	TASK_MOVE_OBS,
 	TASK_ALIGN,
 	TASK_FASTESTPATH,
+	TASK_FASTESTPATH_V2,
 	TASK_BUZZER,
 	TASK_NONE
 };
-
-HAL_StatusTypeDef UART_STATUS;
-
 enum TASK_TYPE curTask = TASK_NONE, prevTask = TASK_NONE;
 
-char temp[20];
+enum MOVE_MODE {
+	FAST,
+	SLOW
+};
+ enum MOVE_MODE moveMode = FAST;
 
-float obsDistL = 0, obsDistR = 0;
-uint16_t obsTickL = 0, obsTickR = 0;
+
+uint16_t obsTick_IR = 0;
 
 float obsDist_IR = 0, obsDist_US = 0;
-float angle_left = 0, angle_right = 0;
+
+float speedScale = 1;
 //uint16_t curObsTick = 0;
 
+float batteryVal;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -285,8 +295,8 @@ static void MX_TIM1_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_ADC1_Init(void);
-static void MX_ADC2_Init(void);
 static void MX_TIM4_Init(void);
+static void MX_ADC2_Init(void);
 void runOledTask(void *argument);
 void runCmdTask(void *argument);
 void runADCTask(void *argument);
@@ -300,6 +310,8 @@ void runFLTask(void *argument);
 void runFRTask(void *argument);
 void runBLTask(void *argument);
 void runBRTask(void *argument);
+void runFastestPathTask_V2(void *argument);
+void runBatteryTask(void *argument);
 
 /* USER CODE BEGIN PFP */
 void PIDConfigInit(PIDConfig * cfg, const float Kp, const float Ki, const float Kd);
@@ -308,13 +320,13 @@ void PIDConfigReset(PIDConfig * cfg);
 void StraightLineMove(const uint8_t speedMode);
 void StraightLineMoveSpeedScale(const uint8_t speedMode, float * speedScale);
 void RobotMoveDist(float * targetDist, const uint8_t dir, const uint8_t speedMode);
-void RobotMoveDistObstacle(uint32_t * last_curTask_tick);
+void RobotMoveDistObstacle(float * targetDist);
 
 void RobotTurn(float * targetAngle);
 
-//void MoveDist(uint32_t * last_curTask_tick, )
+
 uint32_t IC_Val1 = 0, IC_Val2 = 0;
-uint8_t Is_First_Captured = 0;  // is the first value captured ?
+uint8_t Is_First_Captured = 0;
 
 void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 {
@@ -332,19 +344,7 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 		{
 			IC_Val2 = HAL_TIM_ReadCapturedValue(htim, TIM_CHANNEL_2);  // read second value
 			__HAL_TIM_SET_COUNTER(htim, 0);  // reset the counter
-
 			obsDist_US = (IC_Val2 > IC_Val1 ? (IC_Val2 - IC_Val1) : (65535 - IC_Val1 + IC_Val2)) * 0.034 / 2;
-//			if (IC_Val2 > IC_Val1)
-//			{
-//				Difference = IC_Val2-IC_Val1;
-//			}
-//
-//			else if (IC_Val1 > IC_Val2)
-//			{
-//				Difference = (0xffff - IC_Val1) + IC_Val2;
-//			}
-//
-//			obsDist_IR = Difference * .034/2;
 			Is_First_Captured = 0; // set it back to false
 
 			// set polarity to rising edge
@@ -394,8 +394,8 @@ int main(void)
   MX_TIM3_Init();
   MX_I2C1_Init();
   MX_ADC1_Init();
-  MX_ADC2_Init();
   MX_TIM4_Init();
+  MX_ADC2_Init();
   /* USER CODE BEGIN 2 */
   OLED_Init();
   ICM20948_init(&hi2c1,0,GYRO_FULL_SCALE_2000DPS);
@@ -415,7 +415,8 @@ int main(void)
   }
 
   PIDConfigInit(&pid1200, 2.5, 0.0,0.8);
-  PIDConfigInit(&pid2500, 1.5, 0.0,0);
+  PIDConfigInit(&pid4000, 1.5, 0.0,0);
+//  PIDConfigInit(&pid4000, 0.75, 0.0,0);
 
   	HAL_UART_Receive_IT(&huart3, aRxBuffer,RX_BUFFER_SIZE);
 
@@ -492,6 +493,12 @@ int main(void)
 
   /* creation of BRTask */
   BRTaskHandle = osThreadNew(runBRTask, NULL, &BRTask_attributes);
+
+  /* creation of fastestPathV2 */
+  fastestPathV2Handle = osThreadNew(runFastestPathTask_V2, NULL, &fastestPathV2_attributes);
+
+  /* creation of batteryTask */
+  batteryTaskHandle = osThreadNew(runBatteryTask, NULL, &batteryTask_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -642,7 +649,7 @@ static void MX_ADC2_Init(void)
   }
   /** Configure for the selected ADC regular channel its corresponding rank in the sequencer and its sample time.
   */
-  sConfig.Channel = ADC_CHANNEL_12;
+  sConfig.Channel = ADC_CHANNEL_14;
   sConfig.Rank = 1;
   sConfig.SamplingTime = ADC_SAMPLETIME_3CYCLES;
   if (HAL_ADC_ConfigChannel(&hadc2, &sConfig) != HAL_OK)
@@ -1105,13 +1112,15 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef * huart) {
 			__READ_COMMAND(cQueue, curCmd, rxMsg);
 		}
 	}
-	else if (aRxBuffer[0] == 'F' && aRxBuffer[1] != 'L' && aRxBuffer[1] != 'R') { //FW
+	else if (aRxBuffer[0] == 'F' && (aRxBuffer[1] == 'W' || aRxBuffer[1] == 'S')) { //FW or FS
 		manualMode = aRxBuffer[2] == '-' && aRxBuffer[3] == '-';
+		moveMode = aRxBuffer[1] == 'S' ? SLOW : FAST;
 //		if (aRxBuffer[2] == '-' && aRxBuffer[3] == '-') manualMode = 1;
 		__ADD_COMMAND(cQueue, 1, val);
 	}
-	else if (aRxBuffer[0] == 'B' && aRxBuffer[1] != 'L' && aRxBuffer[1] != 'R') { //BW
+	else if (aRxBuffer[0] == 'B' && (aRxBuffer[1] == 'W' || aRxBuffer[1] == 'S')) { //BW or BS
 		manualMode = aRxBuffer[2] == '-' && aRxBuffer[3] == '-';
+		moveMode = aRxBuffer[1] == 'S' ? SLOW : FAST;
 //		if (aRxBuffer[2] == '-' && aRxBuffer[3] == '-') manualMode = 1;
 		__ADD_COMMAND(cQueue, 2, val);
 	}
@@ -1137,17 +1146,9 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef * huart) {
 	else if (aRxBuffer[0] == 'X' && aRxBuffer[1] == 'X') __ADD_COMMAND(cQueue, 14, val); // XX alignment
 	else if (aRxBuffer[0] == 'Z' && aRxBuffer[1] == 'Z') __ADD_COMMAND(cQueue, 15, val); // ZZ buzzer
 	else if (aRxBuffer[0] == 'W' && aRxBuffer[1] == 'N') __ADD_COMMAND(cQueue, 16, val); // WN fastest path
+	else if (aRxBuffer[0] == 'W' && aRxBuffer[1] == '2') __ADD_COMMAND(cQueue, 17, val); // WN fastest path v2
 	else if (aRxBuffer[0] == 'A') __ADD_COMMAND(cQueue, 88, val); // anti-clockwise rotation with variable
 	else if (aRxBuffer[0] == 'C') __ADD_COMMAND(cQueue, 89, val); // clockwise rotation with variable
-
-	// debug commands
-	else if (aRxBuffer[0] == 'Q' && aRxBuffer[1] == 'T') __ADD_COMMAND(cQueue, 90, val); // forward turn test
-	else if (aRxBuffer[0] == 'X' && aRxBuffer[1] == 'T') __ADD_COMMAND(cQueue, 91, val); // backward turn test
-	else if (aRxBuffer[0] == 'R' && aRxBuffer[1] == 'N') __ADD_COMMAND(cQueue, 92, val); // change target angle (-ve)
-	else if (aRxBuffer[0] == 'R' && aRxBuffer[1] == 'P') __ADD_COMMAND(cQueue, 93, val); // change target angle (+ve)
-	else if (aRxBuffer[0] == 'D' && aRxBuffer[1] == 'L') __ADD_COMMAND(cQueue, 96, val); // left duty test
-	else if (aRxBuffer[0] == 'D' && aRxBuffer[1] == 'R') __ADD_COMMAND(cQueue, 97, val); // right duty test
-	else if (aRxBuffer[0] == 'Q' && aRxBuffer[1] == 'Q') __ADD_COMMAND(cQueue, 98, val); // steering test
 
 	if (!__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
 		snprintf((char *)rxMsg, sizeof(rxMsg), "doing");
@@ -1156,7 +1157,7 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef * huart) {
 
 	// clear aRx buffer
 	  __HAL_UART_FLUSH_DRREGISTER(&huart3);
-	  UART_STATUS = HAL_UART_Receive_IT(&huart3, aRxBuffer, RX_BUFFER_SIZE);
+	  HAL_UART_Receive_IT(&huart3, aRxBuffer, RX_BUFFER_SIZE);
 
 //	  if (UART_STATUS != HAL_OK) {
 //		  HAL_UART_Transmit(&huart3, "fail UART_Rx", 12,0xFFFF);
@@ -1216,31 +1217,27 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 		targetD = (targetD + 5) % 105;
 		__READ_COMMAND(cQueue, curCmd, rxMsg);
 
-		// turn test
-//		manualMode = 0;
-//		__ADD_COMMAND(cQueue, 9, 0); // BLxx
-//		__READ_COMMAND(cQueue, curCmd, rxMsg);
 
 		// align test
 //		manualMode = 0;
-//		__ADD_COMMAND(cQueue, 18, 0); // XX align task
+//		__ADD_COMMAND(cQueue, 13, 0); // XX align task
 //		__READ_COMMAND(cQueue, curCmd, rxMsg);
 
 		// ADC test
 //		manualMode = 0;
-//		__ADD_COMMAND(cQueue, 17, 50);
+//		__ADD_COMMAND(cQueue, 14, 50);
 //		__READ_COMMAND(cQueue, curCmd, rxMsg);
 
 		// buzzer test
-//		__ADD_COMMAND(cQueue, 19, 2);
+//		__ADD_COMMAND(cQueue, 15, 2);
 //		__READ_COMMAND(cQueue, curCmd, rxMsg);
 
 		// fastest path test
-//		__ADD_COMMAND(cQueue, 20, 0);
+//		__ADD_COMMAND(cQueue, 16, 0);
 //		__READ_COMMAND(cQueue, curCmd, rxMsg);
 
 		//test turn 30cm
-		manualMode = 0;
+//		manualMode = 0;
 //		if (routineCount == 0) { // FL00
 //			clickOnce = 1;
 //			__ADD_COMMAND(cQueue, 7, 20);
@@ -1286,15 +1283,15 @@ int correction = 0;
 //PIDConfig curPIDConfig;
 
 void StraightLineMove(const uint8_t speedMode) {
-		__Gyro_Read_Z(&hi2c1, readGyroZData, gyroZ); // polling
-		dir = __HAL_TIM_IS_TIM_COUNTING_DOWN(&htim2) ? 1 : -1; // use only one of the wheel to determine car direction
-		angleNow += ((gyroZ >= -4 && gyroZ <= 11) ? 0 : gyroZ); // / GRYO_SENSITIVITY_SCALE_FACTOR_2000DPS * 0.01;
-		if (speedMode == SPEED_MODE_FAST) {
-			__PID_Angle_FAST(pid2500, angleNow, correction, dir, newDutyL, newDutyR);
-		} else {
-			__PID_Angle_SLOW(pid1200, angleNow, correction, dir, newDutyL, newDutyR);
-		}
-		__SET_MOTOR_DUTY(&htim8, newDutyL, newDutyR);
+	__Gyro_Read_Z(&hi2c1, readGyroZData, gyroZ); // polling
+	dir = __HAL_TIM_IS_TIM_COUNTING_DOWN(&htim2) ? 1 : -1; // use only one of the wheel to determine car direction
+	angleNow += ((gyroZ >= -4 && gyroZ <= 11) ? 0 : gyroZ); // / GRYO_SENSITIVITY_SCALE_FACTOR_2000DPS * 0.01;
+	if (speedMode == SPEED_MODE_FAST) {
+		__PID_Angle_FAST(pid4000, angleNow, correction, dir, newDutyL, newDutyR);
+	} else {
+		__PID_Angle_SLOW(pid1200, angleNow, correction, dir, newDutyL, newDutyR);
+	}
+	__SET_MOTOR_DUTY(&htim8, newDutyL, newDutyR);
 }
 
 void StraightLineMoveSpeedScale(const uint8_t speedMode, float * speedScale) {
@@ -1302,20 +1299,20 @@ void StraightLineMoveSpeedScale(const uint8_t speedMode, float * speedScale) {
 	dir = __HAL_TIM_IS_TIM_COUNTING_DOWN(&htim2) ? 1 : -1; // use only one of the wheel to determine car direction
 	angleNow += ((gyroZ >= -4 && gyroZ <= 11) ? 0 : gyroZ); // / GRYO_SENSITIVITY_SCALE_FACTOR_2000DPS * 0.01;
 	if (speedMode == SPEED_MODE_FAST) {
-		__PID_Angle_FAST(pid2500, angleNow, correction, dir, newDutyL, newDutyR);
+		__PID_Angle_FAST(pid4000, angleNow, correction, dir, newDutyL, newDutyR);
 	} else {
 		__PID_Angle_SLOW(pid1200, angleNow, correction, dir, newDutyL, newDutyR);
 	}
-	__SET_MOTOR_DUTY(&htim8, newDutyL * (*speedScale), newDutyR * (*speedScale));
-	}
 
-float scale = 1;
+	__SET_MOTOR_DUTY(&htim8, newDutyL * (*speedScale), newDutyR * (*speedScale));
+}
+
 void RobotMoveDist(float * targetDist, const uint8_t dir, const uint8_t speedMode) {
 	angleNow = 0; gyroZ = 0; // reset angle for PID
 	curDistTick = 0;
 
 	__GET_TARGETTICK(*targetDist, targetDistTick);
-//	targetDistTick = (*targetDist) / 20 * 1320;
+
 	last_curTask_tick = HAL_GetTick();
 	__SET_MOTOR_DIRECTION(dir);
 	__SET_ENCODER_LAST_TICK(&htim2, lastDistTick_L);
@@ -1327,17 +1324,47 @@ void RobotMoveDist(float * targetDist, const uint8_t dir, const uint8_t speedMod
 
 		if (HAL_GetTick() - last_curTask_tick >= 10) {
 			if (speedMode == SPEED_MODE_SLOW) {
-				StraightLineMove(speedMode);
+				StraightLineMove(SPEED_MODE_SLOW);
 			} else {
-				scale = abs(curDistTick - targetDistTick) / 990; // start to slow down at last 990 ticks (15cm)
-				scale = scale > 1 ? 1 : (scale < MIN_SPEED_SCALE ? MIN_SPEED_SCALE : scale);
-				StraightLineMoveSpeedScale(speedMode, &scale);
+				// speed scale is only allowed on fast mode
+				speedScale = abs(curDistTick - targetDistTick) / 990; // start to slow down at last 990 ticks (15cm)
+				speedScale = speedScale > 1 ? 1 : (scale < MIN_SPEED_SCALE ? MIN_SPEED_SCALE : scale);
+				StraightLineMoveSpeedScale(SPEED_MODE_FAST, &scale);
 			}
 			last_curTask_tick = HAL_GetTick();
 		}
 	} while (1);
 	__SET_MOTOR_DUTY(&htim8, 0, 0);
+}
 
+// RobotMoveDistObstacle must be called within a task(eg. runFastestPath) and not within an interrupt(eg. UART, EXTI)
+// else osDelay won't work and TRI's timer interrupt can't be given chance to update obsDist_US
+void RobotMoveDistObstacle(float * targetDist) {
+	obsDist_US = 1000;
+	HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_2);
+	last_curTask_tick = HAL_GetTick();
+
+	do {
+	  HAL_GPIO_WritePin(TRI_GPIO_Port, TRI_Pin, GPIO_PIN_SET);  // pull the TRIG pin HIGH
+	  __Delay_us_TIM4(&htim4, 10); // wait for 10us
+	  HAL_GPIO_WritePin(TRI_GPIO_Port, TRI_Pin, GPIO_PIN_RESET);  // pull the TRIG pin low
+	  __HAL_TIM_ENABLE_IT(&htim4, TIM_IT_CC2);
+	  osDelay(10); // give timer interrupt chance to update obsDist_US value
+	  __SET_MOTOR_DIRECTION(obsDist_US >= *targetDist);
+	  if (abs(*targetDist - obsDist_US) < 0.01) break;
+
+	  if (HAL_GetTick() - last_curTask_tick >=10) {
+		  speedScale = abs(obsDist_US - *targetDist) / 15; // slow down at 15cm
+		  speedScale = speedScale > 1 ? 1 : (speedScale < MIN_SPEED_SCALE ? MIN_SPEED_SCALE : speedScale);
+		  StraightLineMoveSpeedScale(SPEED_MODE_FAST, &speedScale);
+
+		  last_curTask_tick = HAL_GetTick();
+	  }
+
+	} while (1);
+
+	__SET_MOTOR_DUTY(&htim8, 0, 0);
+	HAL_TIM_IC_Stop_IT(&htim4, TIM_CHANNEL_2);
 }
 
 void RobotTurn(float * targetAngle) {
@@ -1355,87 +1382,22 @@ void RobotTurn(float * targetAngle) {
 	__RESET_SERVO_TURN(&htim1);
 }
 
-
-
-void FASTESTPATH_MOVE_DIST(float * targetDist, int * lastDistTick_L, uint16_t * posTickNow, uint16_t * dist_dL) {
-//	__SET_ENCODER_LAST_TICKS(&htim2, *lastDistTick_L, &htim3, *lastDistTick_R);
-	__SET_ENCODER_LAST_TICK(&htim2, *lastDistTick_L);
-	*posTickNow = 0;
-	__GET_TARGETTICK(*targetDist, targetDistTick);
-//	targetDistTick = (*targetDist * DIST_M - DIST_C) / WHEEL_LENGTH * 1320;
-	last_curTask_tick = HAL_GetTick();
-
-	do {
-	  __GET_ENCODER_TICK_DELTA(&htim2, *lastDistTick_L, *dist_dL);
-//			  __GET_ENCODER_TICK_DELTA(&htim3, lastDistTick_R, dist_dR);
-
-	  *posTickNow += *dist_dL; // use just left wheel to check traveled distance
-	  if (*posTickNow >= targetDistTick) break;
-//	  __SET_ENCODER_LAST_TICKS(&htim2, *lastDistTick_L, &htim3, *lastDistTick_R);
-	  __SET_ENCODER_LAST_TICK(&htim2, *lastDistTick_L);
-	  if (HAL_GetTick() - last_curTask_tick >= 10) {
-		  StraightLineMove(SPEED_MODE_SLOW);
-		  last_curTask_tick = HAL_GetTick();
-	  }
-
-	} while (1);
-	__SET_MOTOR_DUTY(&htim8, 0, 0);
-}
-
-void FASTESTPATH_MOVE_DIST_OBSTACLE(const float targetDist) {
-	obsDist_US = 255;
-	HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_2);
-	last_curTask_tick = HAL_GetTick();
-	do {
-	  HAL_GPIO_WritePin(TRI_GPIO_Port, TRI_Pin, GPIO_PIN_SET);  // pull the TRIG pin HIGH
-	  __Delay_us_TIM4(&htim4, 10); // wait for 10us
-	  HAL_GPIO_WritePin(TRI_GPIO_Port, TRI_Pin, GPIO_PIN_RESET);  // pull the TRIG pin low
-	  __HAL_TIM_ENABLE_IT(&htim4, TIM_IT_CC2);
-	  __SET_MOTOR_DIRECTION(obsDist_US >= targetDist);
-	  if (HAL_GetTick() - last_curTask_tick >=10) {
-		  StraightLineMove(SPEED_MODE_SLOW);
-		  last_curTask_tick = HAL_GetTick();
-	  }
-
-	} while (abs(obsDist_US - targetDist) > 0.1);
-	__SET_MOTOR_DUTY(&htim8, 0, 0);
-	HAL_TIM_IC_Stop_IT(&htim4, TIM_CHANNEL_2);
-}
-
 void FASTESTPATH_TURN_LEFT() {
 	targetAngle = 87.5;
 	__SET_SERVO_TURN(&htim1, 53.75);
 	__SET_MOTOR_DIRECTION(1);
-	angleNow = 0; gyroZ = 0;
 	__SET_MOTOR_DUTY(&htim8, 2000, 2000);
-	last_curTask_tick = HAL_GetTick();
-	do {
-	  if (HAL_GetTick() - last_curTask_tick >= 10) { // sample gyro every 10ms
-		  __Gyro_Read_Z(&hi2c1, readGyroZData, gyroZ);
-		  angleNow += gyroZ / GRYO_SENSITIVITY_SCALE_FACTOR_2000DPS * 0.01;
-		  if (abs(angleNow - targetAngle) < 0.01) break;
-		  last_curTask_tick = HAL_GetTick();
-	  }
-	} while(1);
-	__SET_MOTOR_DUTY(&htim8, 0, 0);
+	RobotTurn(&targetAngle);
 }
 
 void FASTESTPATH_TURN_RIGHT() {
-	targetAngle = -87;
-	__SET_SERVO_TURN(&htim1, 109);
+	targetAngle = -86;
+	__SET_SERVO_TURN(&htim1, 108);
 	__SET_MOTOR_DIRECTION(1);
-	angleNow = 0; gyroZ = 0;
 	__SET_MOTOR_DUTY(&htim8, 2000, 2000);
 	last_curTask_tick = HAL_GetTick();
-	do {
-	  if (HAL_GetTick() - last_curTask_tick >= 10) { // sample gyro every 10ms
-		  __Gyro_Read_Z(&hi2c1, readGyroZData, gyroZ);
-		  angleNow += gyroZ / GRYO_SENSITIVITY_SCALE_FACTOR_2000DPS * 0.01;
-		  if (abs(angleNow - targetAngle) < 0.01) break;
-		  last_curTask_tick = HAL_GetTick();
-	  }
-	} while(1);
-	__SET_MOTOR_DUTY(&htim8, 0, 0);
+
+	RobotTurn(&targetAngle);
 }
 
 /* USER CODE END 4 */
@@ -1453,18 +1415,19 @@ void runOledTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
-	OLED_ShowString(0, 0, (char *) rxMsg);
-	OLED_ShowString(0, 12, (char *) aRxBuffer);
+	snprintf(ch, sizeof(ch), "%-3d%%", (int)batteryVal);
+	OLED_ShowString(0, 0, (char *) ch);
+	OLED_ShowString(0, 12, (char *) rxMsg);
+	OLED_ShowString(0, 24, (char *) aRxBuffer);
 
 	// wheel speed test
-//	snprintf(ch, sizeof(ch), "angle:%-6d", (int)angleNow);
-//	OLED_ShowString(0, 24, (char *) ch);
+
 	snprintf(ch, sizeof(ch), "tdis:%-6d", (int)targetD);
 	OLED_ShowString(0, 36, (char *) ch);
-	snprintf(ch, sizeof(ch), "tick:%-6d", (int)targetDistTick);
+	snprintf(ch, sizeof(ch), "obs:%-6d", (int)obsDist_US);
 	OLED_ShowString(0, 48, (char *) ch);
-//	OLED_Refresh_Gram();
-//	HAL_UART_Transmit(&huart3, "test\n", 5, 0xFFFF);
+	OLED_Refresh_Gram();
+
 	osDelay(250);
   }
   /* USER CODE END 5 */
@@ -1520,6 +1483,8 @@ void runCmdTask(void *argument)
 	  	 case 11: // TL
 	  	 case 12: // TR
 	  		 __SET_SERVO_TURN_MAX(&htim1, curCmd.index - 11 ? 1 : 0);
+	  		__CLEAR_CURCMD(curCmd);
+			__ACK_TASK_DONE(&huart3, rxMsg);
 	  		 break;
 	  	 case 13: // DT, move forward until distance to obstacle
 	  		 curTask = TASK_ADC;
@@ -1536,6 +1501,10 @@ void runCmdTask(void *argument)
 	  		 curTask = TASK_FASTESTPATH;
 	  		__PEND_CURCMD(curCmd);
 	  		 break;
+	  	 case 17:
+	  		 curTask = TASK_FASTESTPATH_V2;
+	  		__PEND_CURCMD(curCmd);
+	  		 break;
 	  	 case 88: // Axxx, rotate left by xxx degree
 	  	 case 89: // Cxxx, rotate right by xxx degree
 	  		 __SET_SERVO_TURN_MAX(&htim1, curCmd.index - 88);
@@ -1547,37 +1516,8 @@ void runCmdTask(void *argument)
 	  			targetAngle = -curCmd.val;
 	  			 __SET_MOTOR_DUTY(&htim8, 1200, 800);
 	  		 }
-	  		 curTask = TASK_TURN;
-	  		 __PEND_CURCMD(curCmd);
-	  		 break;
-	  	 case 90: //QT forward turn test
-	  	 case 91: //XT backward turn test
-	  		 __SET_MOTOR_DIRECTION(curCmd.index - 90? DIR_BACKWARD : DIR_FORWARD);
-	  		curTask = TASK_TURN;
-	  		 break;
-	  	 case 92: // RN, change stop angle -ve
-	  	 case 93: // RP, +ve
-	  		 targetAngle = curCmd.val * (curCmd.index - 92 ? 1 : -1);
-	  		__ACK_TASK_DONE(&huart3, rxMsg);
-	  		 __CLEAR_CURCMD(curCmd);
-	  		 break;
-	  	 case 96: // DL, left duty test
-	  		 initDuty_L = curCmd.val * 100;
-//	  		initDuty = curCmd.val * 100;
-	  		__ACK_TASK_DONE(&huart3, rxMsg);
-	  		 __CLEAR_CURCMD(curCmd);
-	  		 break;
-	  	 case 97: // DR, right duty test
-	  		 initDuty_R = curCmd.val * 100;
-	  		__ACK_TASK_DONE(&huart3, rxMsg);
-	  		 __CLEAR_CURCMD(curCmd);
-	  		 break;
-	  	 case 98: // QQ, steering test
-	  		 // angle 50-75-115
-	  		 // argument 0-65
-	  		 __SET_SERVO_TURN(&htim1, SERVO_LEFT_MAX + curCmd.val);
-	  		__ACK_TASK_DONE(&huart3, rxMsg);
-	  		 __CLEAR_CURCMD(curCmd);
+	  		__PEND_CURCMD(curCmd);
+	  		 RobotTurn(&targetAngle);
 	  		 break;
 	  	 case 99:
 	  		 break;
@@ -1605,52 +1545,26 @@ void runCmdTask(void *argument)
 void runADCTask(void *argument)
 {
   /* USER CODE BEGIN runADCTask */
-	uint16_t dataPointL = 0; uint32_t IR_data_raw_acc_L = 0;
-//	uint16_t dataPointR = 0; uint32_t IR_data_raw_acc_R = 0;
-//	float targetDist = 0;
-
-	uint8_t firstRead = 0;
-//	float speedScale = 1;
+	uint16_t dataPoint = 0; uint32_t IR_data_raw_acc = 0;
   /* Infinite loop */
   for(;;)
   {
 	  if (curTask != TASK_ADC) osDelay(1000);
 	  else {
-//		  if (prevTask != TASK_ADC) {
-			dataPointL = 0; IR_data_raw_acc_L = 0; obsDistL = 255;
-//			dataPointR = 0; IR_data_raw_acc_R = 0; obsDistR = 255;
-//			targetDist = curCmd.val + 7;
+			dataPoint = 0; IR_data_raw_acc = 0; obsDist_IR = 1000;
 			angleNow = 0;
 			gyroZ = 0;
 			PIDConfigReset(&pid1200);
-//			firstRead = 0;
-//			__SET_CMD_CONFIG_WODUTY(cfgs[1], &htim1, targetAngle);
 			last_curTask_tick = HAL_GetTick();
 			__PEND_CURCMD(curCmd);
 
 			do {
-				__ADC_Read_Dist(&hadc1, dataPointL, IR_data_raw_acc_L, obsDistL, obsTickL);
-//				__ADC_Read_Dist(&hadc2, dataPointR, IR_data_raw_acc_R, obsDistR, obsTickR);
-
-//			  if (abs(obsDistL - targetDist) < 0.01) break;
-//			  __SET_MOTOR_DIRECTION(obsDistL >= targetDist);
-
-//			  if (!firstRead && obsDistL != 255) firstRead = 1;
-
-//			  if (firstRead) {
-//				  speedScale = abs(obsDistL - targetDist) / 20; // start slow down from 20cm to target distance
-//				  speedScale = speedScale > 1 ? 1 : (speedScale < 0.6 ? 0.6 : speedScale);
-//				  StraightLineMoveSpeedScale(&last_curTask_tick, &speedScale);
-//			  }
-
+				__ADC_Read_Dist(&hadc1, dataPoint, IR_data_raw_acc, obsDist_IR, obsTick_IR);
 			  osDelay(1);
 			} while (1);
-//		  }
 
 		  __ON_TASK_END(&htim8, prevTask, curTask);
 		  HAL_ADC_Stop(&hadc1);
-//		  HAL_ADC_Stop(&hadc2);
-//		  prevTargetDist = targetDist;
 		  clickOnce = 0;
 
 		if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
@@ -1684,8 +1598,7 @@ void runMoveManualTask(void *argument)
 		  if ((prevTask == TASK_MOVE && curCmd.index != 1) || (prevTask == TASK_MOVE_BACKWARD && curCmd.index != 2)) {
 			angleNow = 0; gyroZ = 0;
 			PIDConfigReset(&pid1200);
-			__SET_MOTOR_DUTY(&htim8, cfgs[curCmd.index].leftDuty, cfgs[curCmd.index].rightDuty);
-		 } else __SET_MOTOR_DUTY(&htim8, newDutyL, newDutyR);
+		 }
 
 		  __CLEAR_CURCMD(curCmd);
 		  __ACK_TASK_DONE(&huart3, rxMsg);
@@ -1763,7 +1676,15 @@ void runMoveDistTask(void *argument)
 	  else {
 		  __PEND_CURCMD(curCmd);
 		  targetDist = (float) curCmd.val;
-		  RobotMoveDist(&targetDist, curTask == TASK_MOVE ? DIR_FORWARD : DIR_BACKWARD, targetDist > 15 ? SPEED_MODE_FAST : SPEED_MODE_SLOW);
+		  // for target distance lesser than 15, move mode must be forced to SLOW
+		  if (targetDist <= 15) moveMode = SLOW;
+
+		  if (moveMode == SLOW) {
+			  RobotMoveDist(&targetDist, curTask == TASK_MOVE ? DIR_FORWARD : DIR_BACKWARD, SPEED_MODE_SLOW);
+		  } else {
+			  RobotMoveDist(&targetDist, curTask == TASK_MOVE ? DIR_FORWARD : DIR_BACKWARD, SPEED_MODE_FAST);
+		  }
+
 
 		  __ON_TASK_END(&htim8, prevTask, curTask);
 		  clickOnce = 0;
@@ -1817,50 +1738,50 @@ void runAlignTask(void *argument)
 void runFastestPathTask(void *argument)
 {
   /* USER CODE BEGIN runFastestPathTask */
-	int lastDistTick_L = 0, lastDistTick_R = 0;
-	uint16_t posTickNow = 0, dist_dL = 0, dist_dR = 0;
-	float targetDist = 0;
+	const float FL_Overshoot = 4.0;
+	const float FR_Overshoot = 4.0;
   /* Infinite loop */
   for(;;)
   {
 	  if (curTask != TASK_FASTESTPATH) osDelay(1000);
 	  else {
-
 		  // STEP 1: move forward until 30cm behind the obstacle
-		  FASTESTPATH_MOVE_DIST_OBSTACLE(30);
+		  targetDist = 30;
+		  RobotMoveDistObstacle(&targetDist);
 
 		  // STEP 2: turn right (create ~2.8cm offset horizontally)
 		  FASTESTPATH_TURN_RIGHT();
 
-		  // STEP 3: move forward by 12.2cm (also clear previous 2.8 offset)
-		  targetDist = 12.2;
-		  FASTESTPATH_MOVE_DIST(&targetDist, &lastDistTick_L, &posTickNow, &dist_dL);
+		  // STEP 3: move forward by 12.2cm (also clear previous ~FR_Overshoot offset)
+		  targetDist = 10 + (5 - FR_Overshoot);
+		  RobotMoveDist(&targetDist, DIR_FORWARD, SPEED_MODE_FAST);
 
-		  // STEP 4: turn left (create ~3.5cm offset vertically)
+		  // STEP 4: turn left (create ~4cm offset vertically)
 		  FASTESTPATH_TURN_LEFT();
 
-		  // STEP 5: turn left (create ~3.5cm offset horizontally)
+		  // STEP 5: turn left (create ~4cm offset horizontally)
 		  FASTESTPATH_TURN_LEFT();
 
-		  // STEP 6: move left by 86.5cm (also clear previous ~3.5cm horizontal offset)
-		  targetDist = 86.5;
-		  FASTESTPATH_MOVE_DIST(&targetDist, &lastDistTick_L, &posTickNow, &dist_dL);
+		  // STEP 6: move left by 86cm (also clear previous ~FL_Overshoot horizontal offset)
+		  targetDist = 80 + (10 - FL_Overshoot);
+		  RobotMoveDist(&targetDist, DIR_FORWARD, SPEED_MODE_FAST);
 
-		  // STEP 7: turn left (also clear previous ~3.5cm vertical offset)
+		  // STEP 7: turn left (also clear previous ~FL_Overshoot vertical offset)
 		  FASTESTPATH_TURN_LEFT();
 
-		  // STEP 8: turn left (create ~3.5cm offset horizontally)
+		  // STEP 8: turn left (create ~4cm offset horizontally)
 		  FASTESTPATH_TURN_LEFT();
 
-		  // STEP 9: move forward by 11.5cm (also clear previous ~3.5cm offset)
-		  targetDist = 11.5;
-		  FASTESTPATH_MOVE_DIST(&targetDist, &lastDistTick_L, &posTickNow, &dist_dL);
+		  // STEP 9: move forward by 11cm (also clear previous ~FL_Overshoot offset)
+		  targetDist = 10 + (5 - FL_Overshoot);
+		  RobotMoveDist(&targetDist, DIR_FORWARD, SPEED_MODE_FAST);
 
 		  // STEP 10: turn right (back to initial path)
 		  FASTESTPATH_TURN_RIGHT();
 
 		  // STEP 11: move back to carpack
-		  FASTESTPATH_MOVE_DIST_OBSTACLE(10);
+		  targetDist = 10;
+		  RobotMoveDistObstacle(&targetDist);
 
 
 		  clickOnce = 0;
@@ -1974,39 +1895,39 @@ void runFRTask(void *argument)
   for(;;)
   {
 	  if (curTask != TASK_FR) osDelay(1000);
-	  	  else {
-	  		  switch(curCmd.val) {
-	  		  case 30: // FR30
-	  			  __SET_CMD_CONFIG(cfgs[CONFIG_FR30], &htim8, &htim1, targetAngle);
-	  			  RobotTurn(&targetAngle);
-				  osDelay(10);
-				  targetDist = 4;
-				  RobotMoveDist(&targetDist, DIR_BACKWARD, SPEED_MODE_SLOW);
-				  osDelay(10);
-	  			  break;
-	  		  default: // FR20 or FR00
-	  			  targetDist = 3;
-	  			  RobotMoveDist(&targetDist, DIR_BACKWARD, SPEED_MODE_SLOW);
-	  			  osDelay(10);
-	  			  __SET_CMD_CONFIG(cfgs[CONFIG_FR20], &htim8, &htim1, targetAngle);
-	  			  RobotTurn(&targetAngle);
-	  			  osDelay(10);
-	  			  targetDist = 6.5;
-	  			  RobotMoveDist(&targetDist, DIR_BACKWARD, SPEED_MODE_SLOW);
-	  			  osDelay(10);
-	  			  break;
-	  		  }
+	  else {
+		  switch(curCmd.val) {
+		  case 30: // FR30
+			  __SET_CMD_CONFIG(cfgs[CONFIG_FR30], &htim8, &htim1, targetAngle);
+			  RobotTurn(&targetAngle);
+			  osDelay(10);
+			  targetDist = 4;
+			  RobotMoveDist(&targetDist, DIR_BACKWARD, SPEED_MODE_SLOW);
+			  osDelay(10);
+			  break;
+		  default: // FR20 or FR00
+			  targetDist = 3;
+			  RobotMoveDist(&targetDist, DIR_BACKWARD, SPEED_MODE_SLOW);
+			  osDelay(10);
+			  __SET_CMD_CONFIG(cfgs[CONFIG_FR20], &htim8, &htim1, targetAngle);
+			  RobotTurn(&targetAngle);
+			  osDelay(10);
+			  targetDist = 6.5;
+			  RobotMoveDist(&targetDist, DIR_BACKWARD, SPEED_MODE_SLOW);
+			  osDelay(10);
+			  break;
+		  }
 
 
-	  		  clickOnce = 0;
-	  		  prevTask = curTask;
-	  		  curTask = TASK_NONE;
-	  		  PIDConfigReset(&pid1200);
-	  		  if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
-	  				__CLEAR_CURCMD(curCmd);
-	  				__ACK_TASK_DONE(&huart3, rxMsg);
-	  		  } else __READ_COMMAND(cQueue, curCmd, rxMsg);
-	  	  }
+		  clickOnce = 0;
+		  prevTask = curTask;
+		  curTask = TASK_NONE;
+		  PIDConfigReset(&pid1200);
+		  if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
+				__CLEAR_CURCMD(curCmd);
+				__ACK_TASK_DONE(&huart3, rxMsg);
+		  } else __READ_COMMAND(cQueue, curCmd, rxMsg);
+	  }
   }
   /* USER CODE END runFRTask */
 }
@@ -2111,6 +2032,167 @@ void runBRTask(void *argument)
 	  }
   }
   /* USER CODE END runBRTask */
+}
+
+/* USER CODE BEGIN Header_runFastestPathTask_V2 */
+/**
+* @brief Function implementing the fastestPathV2 thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_runFastestPathTask_V2 */
+void runFastestPathTask_V2(void *argument)
+{
+  /* USER CODE BEGIN runFastestPathTask_V2 */
+	float a, b, angle_right;
+	uint16_t dataPoint = 0; uint32_t IR_data_raw_acc = 0;
+	float IR_min_dist = 10, IR_diff;
+
+  /* Infinite loop */
+  for(;;)
+  {
+	  if (curTask != TASK_FASTESTPATH_V2) osDelay(1000);
+	  else {
+		  // Step 1: move away from car park about 60cm
+		  targetDist = 60;
+		  RobotMoveDist(&targetDist, DIR_FORWARD, SPEED_MODE_FAST);
+
+		  // Step 2: check distance to obstacle
+		  obsDist_US = 1000;
+		  HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_2);
+
+			do {
+				HAL_GPIO_WritePin(TRI_GPIO_Port, TRI_Pin, GPIO_PIN_SET);  // pull the TRIG pin HIGH
+				__Delay_us_TIM4(&htim4, 10); // wait for 10us
+				HAL_GPIO_WritePin(TRI_GPIO_Port, TRI_Pin, GPIO_PIN_RESET);  // pull the TRIG pin low
+				__HAL_TIM_ENABLE_IT(&htim4, TIM_IT_CC2);
+				osDelay(1); // give timer interrupt chance to update obsDist_US value
+			} while (obsDist_US == 1000);
+//			HAL_TIM_IC_Stop_IT(&htim4, TIM_CHANNEL_2);
+
+			b = obsDist_US;
+			a = b * tanf(angle_right / 180 * 3.141592654);
+
+			// Step 3: turn right until sensor overshoot, record down angle
+			angleNow = 0; gyroZ = 0;
+			__SET_SERVO_TURN(&htim1, 115);
+			__SET_MOTOR_DUTY(&htim8, 2000, 1500);
+			last_curTask_tick = HAL_GetTick();
+			do {
+					HAL_GPIO_WritePin(TRI_GPIO_Port, TRI_Pin, GPIO_PIN_SET);  // pull the TRIG pin HIGH
+					__Delay_us_TIM4(&htim4, 10); // wait for 10us
+					HAL_GPIO_WritePin(TRI_GPIO_Port, TRI_Pin, GPIO_PIN_RESET);  // pull the TRIG pin low
+					__HAL_TIM_ENABLE_IT(&htim4, TIM_IT_CC2);
+					osDelay(1); // give timer interrupt chance to update obsDist_US value
+
+					if (HAL_GetTick() - last_curTask_tick >= 10) { // sample gyro every 10ms
+					  __Gyro_Read_Z(&hi2c1, readGyroZData, gyroZ);
+					  angleNow += gyroZ / GRYO_SENSITIVITY_SCALE_FACTOR_2000DPS * 0.01;
+
+					  if (obsDist_US > 250) break;
+					  last_curTask_tick = HAL_GetTick();
+				  }
+				} while (1);
+			HAL_TIM_IC_Stop_IT(&htim4, TIM_CHANNEL_2);
+			angle_right = angleNow;
+			__SET_MOTOR_DUTY(&htim8, 0, 0);
+			osDelay(1000);
+
+		  // Step 4: turn slightly more to prevent robot collide with obstacle
+			targetAngle = -30;
+			__SET_MOTOR_DUTY(&htim8, 2000, 1500);
+			RobotTurn(&targetAngle);
+
+			// Step 5: move forward until IR sensor detect minimum distance
+			dataPoint = 0; IR_data_raw_acc = 0; obsDist_IR = 1000;
+			angleNow = 0;gyroZ = 0;
+			PIDConfigReset(&pid4000);
+			last_curTask_tick = HAL_GetTick();
+			do {
+				__ADC_Read_Dist(&hadc1, dataPoint, IR_data_raw_acc, obsDist_IR, obsTick_IR);
+				if (obsDist_IR <= IR_min_dist) break;
+				if (HAL_GetTick() - last_curTask_tick >= 10) { // sample gyro every 10ms
+					  StraightLineMove(SPEED_MODE_FAST);
+					  last_curTask_tick = HAL_GetTick();
+				  }
+			} while (1);
+			__SET_MOTOR_DUTY(&htim8, 0, 0);
+			osDelay(1000);
+
+			// Step 6: navigate around obstacle until robot angle become 180
+			angleNow = angle_right + 30;
+			dataPoint = 0; IR_data_raw_acc = 0;
+			last_curTask_tick = HAL_GetTick();
+			__SET_MOTOR_DUTY(&htim8, 1500, 1500);
+			do {
+				__ADC_Read_Dist(&hadc1, dataPoint, IR_data_raw_acc, obsDist_IR, obsTick_IR);
+				IR_diff = (IR_min_dist - obsDist_IR) / IR_min_dist;
+				IR_diff = IR_diff > 1 ? 1 : (IR_diff < -1 ? -1 : IR_diff);
+				__SET_SERVO_TURN(&htim1, (74 + (IR_diff > 0 ? 41 : 24) * IR_diff));
+
+				if (HAL_GetTick() - last_curTask_tick >= 10) { // sample gyro every 10ms
+				  __Gyro_Read_Z(&hi2c1, readGyroZData, gyroZ);
+				  angleNow += gyroZ / GRYO_SENSITIVITY_SCALE_FACTOR_2000DPS * 0.01;
+
+				  if (angleNow >= 180) break;
+				  last_curTask_tick = HAL_GetTick();
+			  }
+			} while (1);
+			__SET_MOTOR_DUTY(&htim8, 0, 0);
+
+			osDelay(1000);
+
+			// Step 7: turn left
+			targetAngle = 90 - atanf(b / (60 - a));
+			__SET_SERVO_TURN(&htim1,50);
+			__SET_MOTOR_DUTY(&htim8, 1500, 2000);
+			RobotTurn(&targetAngle);
+
+			// Step 8: move toward center
+			osDelay(1000);
+			targetDist = sqrtf((60 - a) * (60 - a) + b*b);
+			RobotMoveDist(&targetDist,DIR_FORWARD, SPEED_MODE_FAST);
+
+			osDelay(1000);
+
+			// Step 9: rotate back to face carpark
+			__SET_SERVO_TURN(&htim1,115);
+			__SET_MOTOR_DUTY(&htim8, 2000, 1500);
+			targetAngle = -targetAngle;
+			RobotTurn(&targetAngle);
+
+
+			// Step 10: move forward to return to carpark
+			targetDist = 10;
+			RobotMoveDistObstacle(&targetDist);
+
+			// DONE.
+	  }
+    osDelay(1);
+  }
+  /* USER CODE END runFastestPathTask_V2 */
+}
+
+/* USER CODE BEGIN Header_runBatteryTask */
+/**
+* @brief Function implementing the batteryTask thread.
+* @param argument: Not used
+* @retval None
+*/
+/* USER CODE END Header_runBatteryTask */
+void runBatteryTask(void *argument)
+{
+  /* USER CODE BEGIN runBatteryTask */
+  /* Infinite loop */
+  for(;;)
+  {
+	HAL_ADC_Start(&hadc2);
+	HAL_ADC_PollForConversion(&hadc2,20);
+	batteryVal = HAL_ADC_GetValue(&hadc2) / 1421.752066 * 100;
+	HAL_ADC_Stop(&hadc2);
+    osDelay(30000); // check battery level every 30 seconds
+  }
+  /* USER CODE END runBatteryTask */
 }
 
 /**
