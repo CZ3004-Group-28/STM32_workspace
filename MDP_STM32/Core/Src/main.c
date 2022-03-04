@@ -249,10 +249,10 @@ CmdConfig cfgs[19] = {
 	{500, 1700, 50, -88, DIR_BACKWARD}, // BL00
 	{1800, 500, 115, 89, DIR_BACKWARD}, // BR00,
 
-	{700, 1800, 50, 89, DIR_FORWARD}, // FL20
-	{1800, 400, 115 ,-87, DIR_FORWARD}, // FR20
-	{500, 1700, 50, -88, DIR_BACKWARD}, // BL20
-	{1800, 500, 115, 89, DIR_BACKWARD}, // BR20,
+	{800, 1800, 51.85, 89, DIR_FORWARD}, // FL20
+	{1800, 900, 115 ,-87, DIR_FORWARD}, // FR20
+	{700, 1800, 50, -89, DIR_BACKWARD}, // BL20
+	{1800, 700, 115, 89, DIR_BACKWARD}, // BR20,
 
 	{1500, 1500, 53, 87.5, DIR_FORWARD}, // FL30
 	{1500, 1500, 108, -86.5, DIR_FORWARD}, // FR30
@@ -1259,10 +1259,9 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 
 	//	test turn 3x1 (outdoor)
 		manualMode = 0;
-		clickOnce = 1;
 		if (routineCount == 0) __ADD_COMMAND(cQueue, 7, 20);
 		else if (routineCount == 1) __ADD_COMMAND(cQueue, 8, 20);
-		else if (routineCount == 2) __ADD_COMMAND(cQueue, 9, 20);
+		else if (routineCount ==2) __ADD_COMMAND(cQueue, 9, 20);
 		else if (routineCount == 3) __ADD_COMMAND(cQueue, 10, 20);
 
 		routineCount = (routineCount + 1) % 4;
@@ -1924,13 +1923,13 @@ void runFRTask(void *argument)
 			  osDelay(10);
 			  break;
 		  case 20: // FR20 (outdoor 3x1)
-			  targetDist = 3;
+			  targetDist = 4;
 			  RobotMoveDist(&targetDist, DIR_BACKWARD, SPEED_MODE_SLOW);
 			  osDelay(10);
 			  __SET_CMD_CONFIG(cfgs[CONFIG_FR20], &htim8, &htim1, targetAngle);
 			  RobotTurn(&targetAngle);
 			  osDelay(10);
-			  targetDist = 6.5;
+			  targetDist = 8;
 			  RobotMoveDist(&targetDist, DIR_BACKWARD, SPEED_MODE_SLOW);
 			  osDelay(10);
 			  break;
@@ -1992,7 +1991,7 @@ void runBLTask(void *argument)
 			  __SET_CMD_CONFIG(cfgs[CONFIG_BL20], &htim8, &htim1, targetAngle);
 			  RobotTurn(&targetAngle);
 			  osDelay(10);
-			  targetDist = 2.5;
+			  targetDist = 2;
 			  RobotMoveDist(&targetDist, DIR_FORWARD, SPEED_MODE_SLOW);
 			  osDelay(10);
 			  break;
