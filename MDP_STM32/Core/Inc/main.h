@@ -45,44 +45,48 @@ extern "C" {
 
 /* Exported macro ------------------------------------------------------------*/
 /* USER CODE BEGIN EM */
+#define PI 3.141592654
 #define WHEEL_LENGTH 20
 #define PPR 330
 // distance calibration params
-//#define DIST_SLOW_M 1.14117166
-//#define DIST_SLOW_C 1.232534228
-#define SPEED_MODE_SLOW 0
-#define SPEED_MODE_FAST 1
+//#define DIST_M 1.14117166
+//#define DIST_C 1.232534228
+#define SPEED_MODE_T 0
+#define SPEED_MODE_1 1
+#define SPEED_MODE_2 2
 
-#define DIST_SLOW_M 1.150067316
-#define DIST_SLOW_C 0.965311399
+#define DIST_M 1.150067316
+#define DIST_C 0.965311399
 
-#define INIT_DUTY_SLOW_L 1200
-#define INIT_DUTY_SLOW_R 1200
-#define DUTY_SLOW_ADJ_RANGE 600
+#define INIT_DUTY_SPT_L 1200
+#define INIT_DUTY_SPT_R 1200
+#define DUTY_SPT_RANGE 600
 
-#define INIT_DUTY_FAST_L 4000
-#define INIT_DUTY_FAST_R 4000
-#define DUTY_FAST_ADJ_RANGE 2000
+#define INIT_DUTY_SP1_L 1600
+#define INIT_DUTY_SP1_R 1600
+#define DUTY_SP1_RANGE 700
+
+#define INIT_DUTY_SP2_L 3000
+#define INIT_DUTY_SP2_R 3000
+#define DUTY_SP2_RANGE 700
 
 #define DIR_FORWARD 1
 #define DIR_BACKWARD 0
 
 #define SERVO_LEFT_MAX 50
-#define SERVO_FORWARD 74
+#define SERVO_CENTER 74
 #define SERVO_RIGHT_MAX 115
 
-//#define IR_CONST_A 22923.42693
-//#define IR_CONST_B 340.6757963
 #define IR_CONST_A 25644.81557
 #define IR_CONST_B 260.4233354
 #define IR_SAMPLE 100
 
-#define MIN_SPEED_SCALE 0.3 // INIT_DUTY_SLOW_L / INIT_DUTY_FAST_L
+#define MIN_SPEED_SCALE 0.4 // INIT_DUTY_SP1_L / INIT_DUTY_SP2_L
 
 #define SERVO_TURN_TIME 300
 
 #define __GET_TARGETTICK(dist, targetTick) ({ \
-	targetTick = (((dist) * DIST_SLOW_M - DIST_SLOW_C) / WHEEL_LENGTH * 1320) - 10; \
+	targetTick = (((dist) * DIST_M - DIST_C) / WHEEL_LENGTH * 1320) - 10; \
 })
 
 #define __Delay_us_TIM4(_TIMER4, time) ({ \
@@ -98,8 +102,13 @@ extern "C" {
 })
 
 #define __RESET_SERVO_TURN(_TIMER) ({ \
-	(_TIMER)->Instance->CCR4 = SERVO_FORWARD; \
+	(_TIMER)->Instance->CCR4 = SERVO_CENTER; \
 	HAL_Delay(SERVO_TURN_TIME); \
+})
+
+#define __RESET_SERVO_TURN_FAST(_TIMER) ({ \
+	(_TIMER)->Instance->CCR4 = SERVO_CENTER; \
+	HAL_Delay(200); \
 })
 
 #define __SET_SERVO_TURN_MAX(_TIMER, _DIR) ({ \
@@ -135,22 +144,31 @@ extern "C" {
 	} \
 })
 
-#define __PID_Angle_SLOW(cfg, error, correction, dir, newDutyL, newDutyR) ({ \
+#define __PID_SPEED_T(cfg, error, correction, dir, newDutyL, newDutyR) ({ \
 	correction = (cfg).Kp * error + (cfg).Ki * (cfg).ekSum + (cfg).Kd * ((cfg).ek1 - error);\
 	(cfg).ek1 = error; \
 	(cfg).ekSum += error; \
-	correction = correction > DUTY_SLOW_ADJ_RANGE ? DUTY_SLOW_ADJ_RANGE : (correction < -DUTY_SLOW_ADJ_RANGE ? -DUTY_SLOW_ADJ_RANGE : correction); \
-	newDutyL = INIT_DUTY_SLOW_L + correction*dir; \
-	newDutyR = INIT_DUTY_SLOW_R - correction*dir; \
+	correction = correction > DUTY_SPT_RANGE ? DUTY_SPT_RANGE : (correction < -DUTY_SPT_RANGE ? -DUTY_SPT_RANGE : correction); \
+	newDutyL = INIT_DUTY_SPT_L + correction*dir; \
+	newDutyR = INIT_DUTY_SPT_R - correction*dir; \
 })
 
-#define __PID_Angle_FAST(cfg, error, correction, dir, newDutyL, newDutyR) ({ \
+#define __PID_SPEED_1(cfg, error, correction, dir, newDutyL, newDutyR) ({ \
 	correction = (cfg).Kp * error + (cfg).Ki * (cfg).ekSum + (cfg).Kd * ((cfg).ek1 - error);\
 	(cfg).ek1 = error; \
 	(cfg).ekSum += error; \
-	correction = correction > DUTY_FAST_ADJ_RANGE ? DUTY_FAST_ADJ_RANGE : (correction < -DUTY_FAST_ADJ_RANGE ? -DUTY_FAST_ADJ_RANGE : correction); \
-	newDutyL = INIT_DUTY_FAST_L + correction*dir; \
-	newDutyR = INIT_DUTY_FAST_R - correction*dir; \
+	correction = correction > DUTY_SP1_RANGE ? DUTY_SP1_RANGE : (correction < -DUTY_SP1_RANGE ? -DUTY_SP1_RANGE : correction); \
+	newDutyL = INIT_DUTY_SP1_L + correction*dir; \
+	newDutyR = INIT_DUTY_SP1_R - correction*dir; \
+})
+
+#define __PID_SPEED_2(cfg, error, correction, dir, newDutyL, newDutyR) ({ \
+	correction = (cfg).Kp * error + (cfg).Ki * (cfg).ekSum + (cfg).Kd * ((cfg).ek1 - error);\
+	(cfg).ek1 = error; \
+	(cfg).ekSum += error; \
+	correction = correction > DUTY_SP2_RANGE ? DUTY_SP2_RANGE : (correction < -DUTY_SP2_RANGE ? -DUTY_SP2_RANGE : correction); \
+	newDutyL = INIT_DUTY_SP2_L + correction*dir; \
+	newDutyR = INIT_DUTY_SP2_R - correction*dir; \
 })
 
 /*
