@@ -78,13 +78,6 @@ const osThreadAttr_t ADCTask_attributes = {
   .stack_size = 128 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
-/* Definitions for moveManualTask */
-osThreadId_t moveManualTaskHandle;
-const osThreadAttr_t moveManualTask_attributes = {
-  .name = "moveManualTask",
-  .stack_size = 128 * 4,
-  .priority = (osPriority_t) osPriorityNormal,
-};
 /* Definitions for moveDistTask */
 osThreadId_t moveDistTaskHandle;
 const osThreadAttr_t moveDistTask_attributes = {
@@ -287,6 +280,7 @@ float batteryVal;
 // fastest path variable
 float obs_a, obs_b, angle_left, angle_right;
 uint8_t step = 0;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -304,7 +298,6 @@ static void MX_ADC2_Init(void);
 void runOledTask(void *argument);
 void runCmdTask(void *argument);
 void runADCTask(void *argument);
-void runMoveManualTask(void *argument);
 void runMoveDistTask(void *argument);
 void runFastestPathTask(void *argument);
 void runBuzzerTask(void *argument);
@@ -467,9 +460,6 @@ int main(void)
 
   /* creation of ADCTask */
   ADCTaskHandle = osThreadNew(runADCTask, NULL, &ADCTask_attributes);
-
-  /* creation of moveManualTask */
-  moveManualTaskHandle = osThreadNew(runMoveManualTask, NULL, &moveManualTask_attributes);
 
   /* creation of moveDistTask */
   moveDistTaskHandle = osThreadNew(runMoveDistTask, NULL, &moveDistTask_attributes);
@@ -1105,6 +1095,11 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef * huart) {
 	if (aRxBuffer[0] == 'S' && aRxBuffer[1] == 'T') { // only STOP can preempt any greedy task
 //		__ADD_COMMAND(cQueue, 0, 0); // stop
 		__ON_TASK_END(&htim8, prevTask, curTask);
+		  angleNow = 0; gyroZ = 0; // reset angle for PID
+		PIDConfigReset(&pidTSlow);
+		PIDConfigReset(&pidSlow);
+		PIDConfigReset(&pidFast);
+		curDistTick = 0;
 		if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
 			__CLEAR_CURCMD(curCmd);
 			__ACK_TASK_DONE(&huart3, rxMsg);
@@ -1222,14 +1217,15 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 //		manualMode = 0;
 //		__ADD_COMMAND(cQueue, 14, 40);
 //		__READ_COMMAND(cQueue, curCmd, rxMsg);
+
 		// buzzer test
-//		__ADD_COMMAND(cQueue, 15, 2);
-//		__READ_COMMAND(cQueue, curCmd, rxMsg);
+		__ADD_COMMAND(cQueue, 15, 2);
+		__READ_COMMAND(cQueue, curCmd, rxMsg);
 
 		// fastest path test
 //		__ADD_COMMAND(cQueue, 16, 0);
-		__ADD_COMMAND(cQueue, 17, 0);
-		__READ_COMMAND(cQueue, curCmd, rxMsg);
+//		__ADD_COMMAND(cQueue, 17, 0);
+//		__READ_COMMAND(cQueue, curCmd, rxMsg);
 
 		//	test turn 3x1 (indoor)
 //		manualMode = 0;
@@ -1341,7 +1337,7 @@ void RobotMoveDistObstacle(float * targetDist) {
 
 	do {
 	  HAL_GPIO_WritePin(TRI_GPIO_Port, TRI_Pin, GPIO_PIN_SET);  // pull the TRIG pin HIGH
-	  __Delay_us_TIM4(&htim4, 10); // wait for 10us
+	  __delay_us(&htim4, 10); // wait for 10us
 	  HAL_GPIO_WritePin(TRI_GPIO_Port, TRI_Pin, GPIO_PIN_RESET);  // pull the TRIG pin low
 	  __HAL_TIM_ENABLE_IT(&htim4, TIM_IT_CC2);
 	  osDelay(5); // give timer interrupt chance to update obsDist_US value
@@ -1450,16 +1446,16 @@ void runOledTask(void *argument)
   {
 	snprintf(ch, sizeof(ch), "%-3d%%", (int)batteryVal);
 	OLED_ShowString(0, 0, (char *) ch);
-//	OLED_ShowString(0, 12, (char *) rxMsg);
-	snprintf(ch, sizeof(ch), "l:%-3d|r:%-3d", (int)angle_left, (int)angle_right);
-	OLED_ShowString(0, 12, (char *) ch);
-//	OLED_ShowString(0, 24, (char *) aRxBuffer);
-	snprintf(ch, sizeof(ch), "angle:%-7d", (int)angleNow);
-	OLED_ShowString(0, 24, (char *) ch);
-	snprintf(ch, sizeof(ch), "a:%-4d", (int)obs_a);
-	OLED_ShowString(0, 36, (char *) ch);
-	snprintf(ch, sizeof(ch), "US:%-4d|IR:%-4d", (int)obsDist_US, (int)obsDist_IR);
-	OLED_ShowString(0, 48, (char *) ch);
+	OLED_ShowString(0, 12, (char *) rxMsg);
+	OLED_ShowString(0, 24, (char *) aRxBuffer);
+//	snprintf(ch, sizeof(ch), "l:%-3d|r:%-3d", (int)angle_left, (int)angle_right);
+//	OLED_ShowString(0, 12, (char *) ch);
+//	snprintf(ch, sizeof(ch), "angle:%-7d", (int)angleNow);
+//	OLED_ShowString(0, 24, (char *) ch);
+//	snprintf(ch, sizeof(ch), "a:%-4d", (int)obs_a);
+//	OLED_ShowString(0, 36, (char *) ch);
+//	snprintf(ch, sizeof(ch), "US:%-4d|IR:%-4d", (int)obsDist_US, (int)obsDist_IR);
+//	OLED_ShowString(0, 48, (char *) ch);
 	OLED_Refresh_Gram();
 
 	osDelay(250);
@@ -1610,51 +1606,6 @@ void runADCTask(void *argument)
   /* USER CODE END runADCTask */
 }
 
-/* USER CODE BEGIN Header_runMoveManualTask */
-/**
-* @brief Function implementing the moveManualTask thread.
-* @param argument: Not used
-* @retval None
-*/
-/* USER CODE END Header_runMoveManualTask */
-void runMoveManualTask(void *argument)
-{
-  /* USER CODE BEGIN runMoveManualTask */
-  /* Infinite loop */
-  for(;;)
-  {
-	  if (!manualMode || (curTask != TASK_MOVE && curTask != TASK_MOVE_BACKWARD)) osDelay(1000);
-	  else {
-		  __SET_CMD_CONFIG_WODUTY(cfgs[curCmd.index], &htim1, targetAngle);
-
-		  if ((prevTask == TASK_MOVE && curCmd.index != 1) || (prevTask == TASK_MOVE_BACKWARD && curCmd.index != 2)) {
-			angleNow = 0; gyroZ = 0;
-			PIDConfigReset(&pidSlow);
-			PIDConfigReset(&pidTSlow);
-			PIDConfigReset(&pidFast);
-		 }
-
-		  __CLEAR_CURCMD(curCmd);
-		  __ACK_TASK_DONE(&huart3, rxMsg);
-
-		  last_curTask_tick = HAL_GetTick();
-		  do {
-			  if (curTask != TASK_MOVE && curTask != TASK_MOVE_BACKWARD) break;
-
-			  if (HAL_GetTick() - last_curTask_tick >= 10) {
-				  StraightLineMove(SPEED_MODE_1);
-				  last_curTask_tick = HAL_GetTick();
-			  }
-		  } while (1);
-
-
-		  __ON_TASK_END(&htim8, prevTask, curTask);
-		  clickOnce = 0;
-	  }
-  }
-  /* USER CODE END runMoveManualTask */
-}
-
 /* USER CODE BEGIN Header_runMoveDistTask */
 /**
 * @brief Function implementing the moveDistTask thread.
@@ -1669,26 +1620,55 @@ void runMoveDistTask(void *argument)
   /* Infinite loop */
   for(;;)
   {
-	  if (manualMode || (curTask != TASK_MOVE && curTask != TASK_MOVE_BACKWARD)) osDelay(1000);
+	  if (curTask != TASK_MOVE && curTask != TASK_MOVE_BACKWARD) osDelay(1000);
 	  else {
-		  targetDist = (float) curCmd.val;
-		  // for target distance lesser than 15, move mode must be forced to SLOW
-		  if (targetDist <= 15) moveMode = SLOW;
+		  if (manualMode) {
+			  angleNow = 0; gyroZ = 0; // reset angle for PID
+			PIDConfigReset(&pidTSlow);
+			PIDConfigReset(&pidSlow);
+			PIDConfigReset(&pidFast);
 
-		  if (moveMode == SLOW) {
-			  RobotMoveDist(&targetDist, curTask == TASK_MOVE ? DIR_FORWARD : DIR_BACKWARD, SPEED_MODE_1);
+			__SET_MOTOR_DIRECTION(curTask == TASK_MOVE ? DIR_FORWARD : DIR_BACKWARD);
+
+			  __ON_TASK_END(&htim8, prevTask, curTask);
+			  clickOnce = 0;
+
+			  __CLEAR_CURCMD(curCmd);
+			__ACK_TASK_DONE(&huart3, rxMsg);
+
+			last_curTask_tick = HAL_GetTick();
+			do {
+				if (!manualMode) break;
+				if (HAL_GetTick() - last_curTask_tick >= 10) {
+					StraightLineMove(SPEED_MODE_T);
+					last_curTask_tick = HAL_GetTick();
+				}
+			} while (1);
+
 		  } else {
-			  RobotMoveDist(&targetDist, curTask == TASK_MOVE ? DIR_FORWARD : DIR_BACKWARD, SPEED_MODE_2);
+
+			  targetDist = (float) curCmd.val;
+			  // for target distance lesser than 15, move mode must be forced to SLOW
+			  if (targetDist <= 15) moveMode = SLOW;
+
+			  if (moveMode == SLOW) {
+				  RobotMoveDist(&targetDist, curTask == TASK_MOVE ? DIR_FORWARD : DIR_BACKWARD, SPEED_MODE_1);
+			  } else {
+				  RobotMoveDist(&targetDist, curTask == TASK_MOVE ? DIR_FORWARD : DIR_BACKWARD, SPEED_MODE_2);
+			  }
+
+			  __ON_TASK_END(&htim8, prevTask, curTask);
+				  clickOnce = 0;
+
+				if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
+					__CLEAR_CURCMD(curCmd);
+					__ACK_TASK_DONE(&huart3, rxMsg);
+				} else __READ_COMMAND(cQueue, curCmd, rxMsg);
 		  }
 
 
-		  __ON_TASK_END(&htim8, prevTask, curTask);
-		  clickOnce = 0;
 
-		if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
-			__CLEAR_CURCMD(curCmd);
-			__ACK_TASK_DONE(&huart3, rxMsg);
-		} else __READ_COMMAND(cQueue, curCmd, rxMsg);
+
 	  }
   }
   /* USER CODE END runMoveDistTask */
@@ -1780,6 +1760,7 @@ void runBuzzerTask(void *argument)
 		  prevTask = curTask;
 		  curTask = TASK_NONE;
 		  clickOnce = 0;
+
 
 		  if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
 				__CLEAR_CURCMD(curCmd);

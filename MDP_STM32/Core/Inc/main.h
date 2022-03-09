@@ -89,7 +89,7 @@ extern "C" {
 	targetTick = (((dist) * DIST_M - DIST_C) / WHEEL_LENGTH * 1320) - 10; \
 })
 
-#define __Delay_us_TIM4(_TIMER4, time) ({ \
+#define __delay_us(_TIMER4, time) ({ \
 	__HAL_TIM_SET_COUNTER(_TIMER4, 0); \
 	while (__HAL_TIM_GET_COUNTER(_TIMER4) < time); \
 })
@@ -186,7 +186,7 @@ extern "C" {
 })
 
 #define __ACK_TASK_DONE(_UART, msg) ({ \
-	snprintf((char *)msg, sizeof(msg) - 1, "done"); \
+	snprintf((char *)msg, sizeof(msg) - 1, "done!"); \
 	HAL_UART_Transmit(_UART, (uint8_t *) "ACK|\r\n", 6, 0xFFFF); \
 })
 
