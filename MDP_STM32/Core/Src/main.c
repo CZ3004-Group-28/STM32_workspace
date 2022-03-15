@@ -272,15 +272,14 @@ enum MOVE_MODE {
 uint16_t obsTick_IR = 0;
 
 float obsDist_IR = 0, obsDist_US = 0;
-
+//float IR_data_raw_acc = 0, dataPoint = 0;
+uint16_t dataPoint = 0; uint32_t IR_data_raw_acc = 0;
 float speedScale = 1;
 
 float batteryVal;
 
 // fastest path variable
-float obs_a, obs_b, angle_left, angle_right;
-uint8_t step = 0;
-
+float obs_a, x, angle_left, angle_right;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -346,6 +345,10 @@ void HAL_TIM_IC_CaptureCallback(TIM_HandleTypeDef *htim)
 			// set polarity to rising edge
 			__HAL_TIM_SET_CAPTUREPOLARITY(htim, TIM_CHANNEL_2, TIM_INPUTCHANNELPOLARITY_RISING);
 			__HAL_TIM_DISABLE_IT(&htim4, TIM_IT_CC2);
+
+//			if (recordAngleOnOvershoot) { // for fastest path challenge
+//
+//			}
 		}
 	}
 }
@@ -1139,8 +1142,8 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef * huart) {
 	else if (aRxBuffer[0] == 'I' && aRxBuffer[1] == 'R') __ADD_COMMAND(cQueue, 13, val); // test IR sensor
 	else if (aRxBuffer[0] == 'D' && aRxBuffer[1] == 'T') __ADD_COMMAND(cQueue, 14, val); // DT move until specified distance from obstacle
 	else if (aRxBuffer[0] == 'Z' && aRxBuffer[1] == 'Z') __ADD_COMMAND(cQueue, 15, val); // ZZ buzzer
-	else if (aRxBuffer[0] == 'W' && aRxBuffer[1] == 'N') __ADD_COMMAND(cQueue, 16, val); // WN fastest path
-	else if (aRxBuffer[0] == 'W' && aRxBuffer[1] == '2') __ADD_COMMAND(cQueue, 17, val); // WN fastest path v2
+	else if (aRxBuffer[0] == 'W' && aRxBuffer[1] == 'X') __ADD_COMMAND(cQueue, 16, val); // WN fastest path
+	else if (aRxBuffer[0] == 'W' && aRxBuffer[1] == 'N') __ADD_COMMAND(cQueue, 17, val); // WN fastest path v2
 	else if (aRxBuffer[0] == 'A') __ADD_COMMAND(cQueue, 88, val); // anti-clockwise rotation with variable
 	else if (aRxBuffer[0] == 'C') __ADD_COMMAND(cQueue, 89, val); // clockwise rotation with variable
 
@@ -1160,92 +1163,17 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef * huart) {
 //}
 
 int clickOnce = 0;
-int targetRot = 360;
 int targetD = 5;
-int routineCount = 0;
 uint8_t tempDir = 1 ;
+int8_t step = -1;
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 	if (clickOnce) return;
 	if (GPIO_Pin == SW1_Pin) {
 		clickOnce = 1;
 
-		// test routine before connecting to rpi
-//		manualMode = 0;
-//		if (routineCount == 0) { // DT20, IR Sensor (front) test
-//			__ADD_COMMAND(cQueue, 13, 20);
-////
-//		} else if (routineCount == 1) { // test turn right
-//			__ADD_COMMAND(cQueue, 9, 0); // BL00
-//
-//		} else if (routineCount == 2) { // test turn left
-//			__ADD_COMMAND(cQueue, 10, 0); // BR00
-//			clickOnce = 0;
-//
-//		} else if (routineCount == 3) { // test
-//			clickOnce = 0;
-//		}
-//
-//		routineCount = (routineCount + 1) % 4;
-//
-//		if (!__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
-//			snprintf((char *)rxMsg, sizeof(rxMsg), "doing");
-//			__READ_COMMAND(cQueue, curCmd, rxMsg);
-//		}
-
-
-		// pid test
-//		manualMode = 0;
-//		moveMode = SLOW;
-//		__ADD_COMMAND(cQueue, 1, 120); // FW--
-////		tempDir = tempDir == 1 ? 2 : 1;
-////		targetD = (targetD + 5) % 85;
-//		__READ_COMMAND(cQueue, curCmd, rxMsg);
-
-		// test 5cm step forward
-//		manualMode = 0;
-//		__ADD_COMMAND(cQueue, 1, targetD); // FW--
-//		targetD = (targetD + 5) % 105;
-//		__READ_COMMAND(cQueue, curCmd, rxMsg);
-
-
-		// ADC test
-//		manualMode = 0;
-//		__ADD_COMMAND(cQueue, 13, 50);
-//		__READ_COMMAND(cQueue, curCmd, rxMsg);
-
-		// Ultrasonic sensor test
-//		manualMode = 0;
-//		__ADD_COMMAND(cQueue, 14, 40);
-//		__READ_COMMAND(cQueue, curCmd, rxMsg);
-
-		// buzzer test
-		__ADD_COMMAND(cQueue, 15, 2);
+		step = (step + 1) % 7;
+		__ADD_COMMAND(cQueue, 17, 2);
 		__READ_COMMAND(cQueue, curCmd, rxMsg);
-
-		// fastest path test
-//		__ADD_COMMAND(cQueue, 16, 0);
-//		__ADD_COMMAND(cQueue, 17, 0);
-//		__READ_COMMAND(cQueue, curCmd, rxMsg);
-
-		//	test turn 3x1 (indoor)
-//		manualMode = 0;
-//		if (routineCount == 0) __ADD_COMMAND(cQueue, 7, 0);
-//		else if (routineCount == 1) __ADD_COMMAND(cQueue, 8, 0);
-//		else if (routineCount ==2) __ADD_COMMAND(cQueue, 9, 0);
-//		else if (routineCount == 3) __ADD_COMMAND(cQueue, 10, 0);
-//
-//		routineCount = (routineCount + 1) % 4;
-//		__READ_COMMAND(cQueue, curCmd, rxMsg);
-
-	//	test turn 3x1 (outdoor)
-//		manualMode = 0;
-//		if (routineCount == 0) __ADD_COMMAND(cQueue, 7, 20);
-//		else if (routineCount == 1) __ADD_COMMAND(cQueue, 8, 20);
-//		else if (routineCount ==2) __ADD_COMMAND(cQueue, 9, 20);
-//		else if (routineCount == 3) __ADD_COMMAND(cQueue, 10, 20);
-//
-//		routineCount = (routineCount + 1) % 4;
-//		__READ_COMMAND(cQueue, curCmd, rxMsg);
 	}
 
 }
@@ -1390,45 +1318,116 @@ void RobotTurnFastest(float * targetAngle) {
 
 void FASTESTPATH_TURN_LEFT_90() {
 	targetAngle = 87.5;
-	__SET_SERVO_TURN(&htim1, 53.75);
+	__SET_SERVO_TURN(&htim1, 50);
 	__SET_MOTOR_DIRECTION(1);
-	__SET_MOTOR_DUTY(&htim8, 2000, 2000);
+	__SET_MOTOR_DUTY(&htim8, 1000, 2000);
 	RobotTurn(&targetAngle);
 }
 
-//void FASTESTPATH_TURN_RIGHT_90() {
-//	targetAngle = -86;
-//	__SET_SERVO_TURN(&htim1, 108);
-//	__SET_MOTOR_DIRECTION(1);
-//	__SET_MOTOR_DUTY(&htim8, 2000, 2000);
-//
-//	RobotTurn(&targetAngle);
-//}
+void FASTESTPATH_TURN_RIGHT_90() {
+	targetAngle = -86;
+	__SET_SERVO_TURN(&htim1, 115);
+	__SET_MOTOR_DIRECTION(1);
+	__SET_MOTOR_DUTY(&htim8, 3000, 800);
+
+	RobotTurn(&targetAngle);
+}
 
 void FASTESTPATH_TURN_RIGHT_180() {
 	targetAngle = -176;
 	__SET_SERVO_TURN(&htim1, 115);
 	__SET_MOTOR_DIRECTION(1);
-	__SET_MOTOR_DUTY(&htim8, 2000, 1000);
+	__SET_MOTOR_DUTY(&htim8, 3000, 800);
 	RobotTurn(&targetAngle);
 }
 
-void FASTESTPATH_TURN_LEFT_90X() {
-	targetAngle = 87.5;
-	__SET_SERVO_TURN(&htim1, 60);
+void FASTESTPATH_TURN_LEFT_90X(uint8_t * turnSize) { // x3
 	__SET_MOTOR_DIRECTION(1);
-	__SET_MOTOR_DUTY(&htim8, 1800, 2100);
+	switch (*turnSize) {
+	case 1:
+		targetAngle = 83;
+		__SET_SERVO_TURN(&htim1, 50);
+		__SET_MOTOR_DUTY(&htim8, 2000, 3500);
+		break;
+	case 2:
+	default:
+//		targetAngle = 85;
+		targetAngle = 83;
+		__SET_SERVO_TURN(&htim1, 52);
+//		__SET_MOTOR_DUTY(&htim8, 2500, 2916);
+		__SET_MOTOR_DUTY(&htim8, 3000, 3500);
+		break;
+	}
+	RobotTurnFastest(&targetAngle);
+
+}
+
+//void FASTESTPATH_TURN_RIGHT_90X(const uint8_t MODE) { //x4
+//	__SET_MOTOR_DIRECTION(1);
+//	switch (MODE) {
+//	case 1:
+//		break;
+//	case 2:
+//		break;
+//	case 3:
+//	default:
+//		targetAngle = -85.5;
+//		__SET_SERVO_TURN(&htim1, 98);
+//		__SET_MOTOR_DUTY(&htim8, 2700, 2500);
+//		break;
+//	}
+//	RobotTurnFastest(&targetAngle);
+//}
+
+void FASTESTPATH_TURN_RIGHT_180X(uint8_t * turnSize) {
+	__SET_MOTOR_DIRECTION(1);
+	switch (*turnSize) {
+	case 1:
+		targetAngle = -172;
+		__SET_SERVO_TURN(&htim1, 115);
+		__SET_MOTOR_DUTY(&htim8, 3500, 2000);
+		break;
+	case 2:
+	default:
+//		targetAngle = -176;
+		targetAngle = -173;
+		__SET_SERVO_TURN(&htim1, 98);
+//		__SET_MOTOR_DUTY(&htim8, 2700, 2500);
+		__SET_MOTOR_DUTY(&htim8, 3500, 3240);
+		break;
+	}
 	RobotTurnFastest(&targetAngle);
 }
 
-void FASTESTPATH_TURN_RIGHT_180X() {
-	targetAngle = -173;
-	__SET_SERVO_TURN(&htim1, 115);
-	__SET_MOTOR_DIRECTION(1);
-	__SET_MOTOR_DUTY(&htim8, 3000, 1000);
-	RobotTurnFastest(&targetAngle);
+void RobotMoveUntilIROvershoot() {
+	obsDist_IR = 0;
+	angleNow = 0; gyroZ = 0;
+	  last_curTask_tick = HAL_GetTick();
+	  do {
+		  __ADC_Read_Dist(&hadc1, dataPoint, IR_data_raw_acc, obsDist_IR, obsTick_IR);
+		  if (obsDist_IR > 40) break;
+		  if (HAL_GetTick() - last_curTask_tick >= 10) {
+			  StraightLineMove(SPEED_MODE_2);
+			  last_curTask_tick = HAL_GetTick();
+		  }
+	  } while (1);
+	  __SET_MOTOR_DUTY(&htim8, 0, 0);
 }
 
+void RobotMoveUntilIRHit() {
+	obsDist_IR = 1000;
+	angleNow = 0; gyroZ = 0;
+	  last_curTask_tick = HAL_GetTick();
+	  do {
+		  __ADC_Read_Dist(&hadc1, dataPoint, IR_data_raw_acc, obsDist_IR, obsTick_IR);
+		  if (obsDist_IR < 40) break;
+		  if (HAL_GetTick() - last_curTask_tick >= 10) {
+			  StraightLineMove(SPEED_MODE_2);
+			  last_curTask_tick = HAL_GetTick();
+		  }
+	  } while (1);
+	  __SET_MOTOR_DUTY(&htim8, 0, 0);
+}
 /* USER CODE END 4 */
 
 /* USER CODE BEGIN Header_runOledTask */
@@ -1446,14 +1445,14 @@ void runOledTask(void *argument)
   {
 	snprintf(ch, sizeof(ch), "%-3d%%", (int)batteryVal);
 	OLED_ShowString(0, 0, (char *) ch);
-	OLED_ShowString(0, 12, (char *) rxMsg);
-	OLED_ShowString(0, 24, (char *) aRxBuffer);
-//	snprintf(ch, sizeof(ch), "l:%-3d|r:%-3d", (int)angle_left, (int)angle_right);
-//	OLED_ShowString(0, 12, (char *) ch);
+//	OLED_ShowString(0, 12, (char *) rxMsg);
+//	OLED_ShowString(0, 24, (char *) aRxBuffer);
+	snprintf(ch, sizeof(ch), "l:%-3d|r:%-3d", (int)angle_left, (int)angle_right);
+	OLED_ShowString(0, 12, (char *) ch);
 //	snprintf(ch, sizeof(ch), "angle:%-7d", (int)angleNow);
 //	OLED_ShowString(0, 24, (char *) ch);
-//	snprintf(ch, sizeof(ch), "a:%-4d", (int)obs_a);
-//	OLED_ShowString(0, 36, (char *) ch);
+	snprintf(ch, sizeof(ch), "obs_a:%-4d|x:%-4d", (int)obs_a, (int) x);
+	OLED_ShowString(0, 24, (char *) ch);
 //	snprintf(ch, sizeof(ch), "US:%-4d|IR:%-4d", (int)obsDist_US, (int)obsDist_IR);
 //	OLED_ShowString(0, 48, (char *) ch);
 	OLED_Refresh_Gram();
@@ -1684,45 +1683,104 @@ void runMoveDistTask(void *argument)
 void runFastestPathTask(void *argument)
 {
   /* USER CODE BEGIN runFastestPathTask */
-	const float FL_Overshoot = 4.0;
-	const float FR_Overshoot = 4.0;
+	uint8_t hadOvershoot = 0;
   /* Infinite loop */
   for(;;)
   {
 	  if (curTask != TASK_FASTESTPATH) osDelay(1000);
 	  else {
-		  // STEP 1: move forward until 30cm behind the obstacle
-		  targetDist = 30;
-		  RobotMoveDistObstacle(&targetDist);
+		  if (step == 0) {
+			  targetDist = 30;
+			  RobotMoveDistObstacle(&targetDist);
+		  } else if (step == 1) {
+			  //2:  turn left by 90 degree, record down angle when US sensor overshoot
+			  hadOvershoot = 0;
+			  angleNow = 0; gyroZ = 0;
+			  angle_left = 0;
+			  targetAngle = 90;
+			  obsDist_US = 0;
+			  __SET_SERVO_TURN_MAX(&htim1, 0);
+			  __SET_MOTOR_DUTY(&htim8, 600, 1000);
+			  __SET_MOTOR_DIRECTION(1);
+			  HAL_TIM_IC_Start_IT(&htim4, TIM_CHANNEL_2);
+			  last_curTask_tick = HAL_GetTick();
+			  do {
+				  __Gyro_Read_Z(&hi2c1, readGyroZData, gyroZ);
+				  if (!hadOvershoot) {
+					  HAL_GPIO_WritePin(TRI_GPIO_Port, TRI_Pin, GPIO_PIN_SET);  // pull the TRIG pin HIGH
+					  __delay_us(&htim4, 10); // wait for 10us
+					  HAL_GPIO_WritePin(TRI_GPIO_Port, TRI_Pin, GPIO_PIN_RESET);  // pull the TRIG pin low
+					  __HAL_TIM_ENABLE_IT(&htim4, TIM_IT_CC2);
+					  osDelay(5); // give timer interrupt chance to update obsDist_US value
+				  }
 
-		  // STEP 2: turn left
-		  FASTESTPATH_TURN_LEFT_90();
 
-		  // STEP 3: move forward by 21cm
-		  targetDist = 21;
-		  RobotMoveDist(&targetDist, DIR_FORWARD, SPEED_MODE_1);
+				  if (HAL_GetTick() - last_curTask_tick >=10) {
+//					  __Gyro_Read_Z(&hi2c1, readGyroZData, gyroZ);
+					  angleNow += gyroZ / GRYO_SENSITIVITY_SCALE_FACTOR_2000DPS * 0.01;
+					  if (obsDist_US > 55 && !hadOvershoot) {
+						  angle_left = angleNow;
+						  hadOvershoot = 1;
+					  }
 
-		  // STEP 4: turn right 180
-		  FASTESTPATH_TURN_RIGHT_180();
+					  if (abs(targetAngle - angleNow) < 0.01) break;
+					  last_curTask_tick = HAL_GetTick();
+				  }
 
-		  // STEP 5: move right by 76cm
-		  targetDist = 106;
-		  RobotMoveDist(&targetDist, DIR_FORWARD, SPEED_MODE_2);
+				} while (1);
+			  __SET_MOTOR_DUTY(&htim8, 0, 0);
+			  __RESET_SERVO_TURN(&htim1);
+			  osDelay(10);
 
-		  // STEP 6: turn right 180
-		  FASTESTPATH_TURN_RIGHT_180();
+			  obs_a = 30 * tanf(angle_left * PI / 180);
+			  angle_right = atanf((60 - obs_a) / 30) * 180 / PI;
+			  x = sqrtf((60 - obs_a) * (60 - obs_a) + 900) - 23; // 23 robot length offset
 
-		  // STEP 7: move forward by 10cm
-		  targetDist = 20;
-		  RobotMoveDist(&targetDist, DIR_FORWARD, SPEED_MODE_1);
-
-		  // STEP 8: turn left (back to initial path)
-		  FASTESTPATH_TURN_LEFT_90();
-
-		  // STEP 9: move back to carpack
-		  targetDist = 15;
-		  RobotMoveDistObstacle(&targetDist);
-
+		  } else if (step == 2) {
+			  // 3: move forward until IR overshoot
+			  RobotMoveUntilIROvershoot();
+			  osDelay(10);
+		  }else if (step == 3) {
+			  // 4: Turn right by 180 degree
+			  FASTESTPATH_TURN_RIGHT_180();
+			  osDelay(10);
+		  } else if (step == 4){
+			  // 5: move forward until right beside obstacle
+			  RobotMoveUntilIRHit();
+			  osDelay(10);
+		  }else if (step == 5) {
+			  // 6: move forward until IR overshoot
+			  RobotMoveUntilIROvershoot();
+			  osDelay(10);
+		  }else if (step == 6) {
+			  // 7: Turn right by 90 degree
+			  FASTESTPATH_TURN_RIGHT_90();
+			  osDelay(10);
+		  }else if (step == 7) {
+			  // 8: move forward until IR overshoot
+			  RobotMoveUntilIROvershoot();
+			  osDelay(10);
+		  }else if (step == 8) {
+			  // 9: turn right by angle_right
+			  __SET_SERVO_TURN_MAX(&htim1, 1);
+			  __SET_MOTOR_DUTY(&htim8, 2000, 1000);
+			  targetAngle = angle_right *-1;
+			  RobotTurn(&targetAngle);
+		  }else if (step == 9) {
+			  //10: move until center of the original path
+			  targetDist = x;
+			  RobotMoveDist(&targetDist, 1, SPEED_MODE_T);
+		  }else if (step == 10) {
+			  //11: turn left to face the carpark
+			  __SET_SERVO_TURN_MAX(&htim1, 0);
+			  __SET_MOTOR_DUTY(&htim8, 1000, 2000);
+			  targetAngle = angle_right;
+			  RobotTurn(&targetAngle);
+		  } else if (step == 11) {
+			  //12: back to the carpark
+			  targetDist = 15;
+			  RobotMoveDistObstacle(&targetDist);
+		  }
 
 		  clickOnce = 0;
 		  prevTask = curTask;
@@ -2026,36 +2084,51 @@ void runBRTask(void *argument)
 void runFastestPathTask_V2(void *argument)
 {
   /* USER CODE BEGIN runFastestPathTask_V2 */
-//	float a, b, angle_right;
-	uint8_t turn = 0, overshoot = 0;
-	uint16_t dataPoint = 0; uint32_t IR_data_raw_acc = 0;
-
+	const float FL_Offset_Y = 1.5;
+	uint8_t turnSize = 3;
   /* Infinite loop */
   for(;;)
   {
 	  if (curTask != TASK_FASTESTPATH_V2) osDelay(1000);
 	  else {
-
-//		   STEP 1: move forward until 30cm behind the obstacle
+		  turnSize = curCmd.val;
+//		   STEP 1: move forward until x cm behind the obstacle
 //		  if (step == 0) {
-			  targetDist = 40;
+		  switch (turnSize) {
+		  case 1:
+			  targetDist = 20 + 7 + FL_Offset_Y;
+			  break;
+		  case 2:
+			  targetDist = 40 + 7 + FL_Offset_Y;
+		  default:
+			  break;
+		  }
 			  RobotMoveDistObstacle(&targetDist);
 //		  } else if (step == 1) {
 			  // STEP 2: turn left
-			  FASTESTPATH_TURN_LEFT_90X();
+			  FASTESTPATH_TURN_LEFT_90X(&turnSize);
 //		  } else if (step == 2) {
 			  // STEP 3: turn right 180
-			  FASTESTPATH_TURN_RIGHT_180X();
+			  FASTESTPATH_TURN_RIGHT_180X(&turnSize);
 //		  } else if (step == 3) {
-			  // STEP 4: move right by 87cm
-			  targetDist = 94;
+			  // STEP 4: move right by 94cm
+			  switch (turnSize) {
+			  case 1:
+				  targetDist = 52;
+				  break;
+			  case 2:
+//				  targetDist = 65;
+				  targetDist = 60;
+			  default:
+				  break;
+			  }
 			  RobotMoveDist(&targetDist, DIR_FORWARD, SPEED_MODE_2);
 //		  } else if (step == 4) {
 			  // STEP 5: turn right 180
-			  FASTESTPATH_TURN_RIGHT_180X();
+			  FASTESTPATH_TURN_RIGHT_180X(&turnSize);
 //		  } else if (step == 5) {
 			  // STEP 6: turn left (back to initial path)
-			  FASTESTPATH_TURN_LEFT_90X();
+			  FASTESTPATH_TURN_LEFT_90X(&turnSize);
 //		  } else if (step == 6) {
 			  // STEP 7: move back to carpack
 			  targetDist = 15;

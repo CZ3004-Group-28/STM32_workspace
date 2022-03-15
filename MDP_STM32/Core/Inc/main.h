@@ -66,8 +66,8 @@ extern "C" {
 #define INIT_DUTY_SP1_R 1600
 #define DUTY_SP1_RANGE 700
 
-#define INIT_DUTY_SP2_L 3000
-#define INIT_DUTY_SP2_R 3000
+#define INIT_DUTY_SP2_L 5000
+#define INIT_DUTY_SP2_R 5000
 #define DUTY_SP2_RANGE 700
 
 #define DIR_FORWARD 1
