@@ -1175,19 +1175,29 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef * huart) {
 int clickOnce = 0;
 int targetD = 5;
 uint8_t tempDir = 1 ;
-int8_t step = -1;
+int8_t step = 0;
 uint8_t turnMode = 2;
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin) {
 	if (clickOnce) return;
 	if (GPIO_Pin == SW1_Pin) {
 		clickOnce = 1;
 
-//		__ADD_COMMAND(cQueue, 13, 0);
+
+//		manualMode = 1;
+//		moveMode = FAST;
+//		__ADD_COMMAND(cQueue, 1, 90);
 //		__READ_COMMAND(cQueue, curCmd, rxMsg);
-		step = (step + 1) % 7;
-		__ADD_COMMAND(cQueue, 17, turnMode + 1);
+
+		__ADD_COMMAND(cQueue, 7 + step, 0);
 		__READ_COMMAND(cQueue, curCmd, rxMsg);
-		turnMode = (turnMode + 1) % 4;
+
+		step = (step + 1) % 4;
+//		step = (step + 1) % 7;
+//		__ADD_COMMAND(cQueue, 17, turnMode + 1);
+//		__READ_COMMAND(cQueue, curCmd, rxMsg);
+//		turnMode = (turnMode + 1) % 4;
+//		__ADD_COMMAND(cQueue, 1, 100);
+//		__READ_COMMAND(cQueue, curCmd, rxMsg);
 	}
 
 }
@@ -1514,6 +1524,7 @@ void RobotMoveUntilIRHit() {
   * @retval None
   */
 /* USER CODE END Header_runOledTask */
+float angleTemp;
 void runOledTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
@@ -1521,9 +1532,12 @@ void runOledTask(void *argument)
   for(;;)
   {
 	snprintf(ch, sizeof(ch), "%-3d%%", (int)batteryVal);
-	OLED_ShowString(0, 0, (char *) ch);
-	OLED_ShowString(0, 12, (char *) rxMsg);
-	OLED_ShowString(0, 24, (char *) aRxBuffer);
+//	OLED_ShowString(0, 0, (char *) ch);
+	angleTemp = angleNow / GRYO_SENSITIVITY_SCALE_FACTOR_2000DPS * 0.01;
+	snprintf(ch, sizeof(ch), "angle:%-4d", (int) angleTemp);
+	OLED_ShowString(0, 8, (char *) ch);
+//	OLED_ShowString(0, 12, (char *) rxMsg);
+//	OLED_ShowString(0, 24, (char *) aRxBuffer);
 //	snprintf(ch, sizeof(ch), "l:%-3d|r:%-3d", (int)angle_left, (int)angle_right);
 //	snprintf(ch, sizeof(ch), "ir:%-5d", (int)obsDist_IR);
 //	OLED_ShowString(0, 12, (char *) ch);
@@ -1672,7 +1686,8 @@ void runADCTask(void *argument)
 //		  __ON_TASK_END(&htim8, prevTask, curTask);
 //		  HAL_ADC_Stop(&hadc1);
 		  clickOnce = 0;
-
+		  prevTask = curTask;
+		  curTask = TASK_NONE;
 		if (__COMMAND_QUEUE_IS_EMPTY(cQueue)) {
 			__CLEAR_CURCMD(curCmd);
 			__ACK_TASK_DONE(&huart3, rxMsg);
@@ -1721,10 +1736,11 @@ void runMoveDistTask(void *argument)
 					StraightLineMove(SPEED_MODE_T);
 					last_curTask_tick = HAL_GetTick();
 				}
+//				osDelay(5); // for video demo only, give OLED chances to update
 			} while (1);
 
 		  } else {
-
+//			  osDelay(5000); // for video demo only
 			  targetDist = (float) curCmd.val;
 			  // for target distance lesser than 15, move mode must be forced to SLOW
 			  if (targetDist <= 15) moveMode = SLOW;
@@ -1923,6 +1939,7 @@ void runFLTask(void *argument)
   {
 	  if (curTask != TASK_FL) osDelay(1000);
 	  else {
+//		  osDelay(3000); // video demo only
 		  switch(curCmd.val) {
 		  case 30: // FL30 (4x2)
 			  __SET_CMD_CONFIG(cfgs[CONFIG_FL30], &htim8, &htim1, targetAngle);
@@ -1985,6 +2002,7 @@ void runFRTask(void *argument)
   {
 	  if (curTask != TASK_FR) osDelay(1000);
 	  else {
+//		  osDelay(3000); // video demo only
 		  switch(curCmd.val) {
 		  case 30: // FR30 (4x2)
 			  __SET_CMD_CONFIG(cfgs[CONFIG_FR30], &htim8, &htim1, targetAngle);
@@ -2046,6 +2064,7 @@ void runBLTask(void *argument)
   {
 	  if (curTask != TASK_BL) osDelay(1000);
 	  else {
+//		  osDelay(3000); // video demo only
 		  switch(curCmd.val) {
 		  case 30: // BL30 (4x2)
 			  __SET_CMD_CONFIG(cfgs[CONFIG_BL30], &htim8, &htim1, targetAngle);
@@ -2107,6 +2126,7 @@ void runBRTask(void *argument)
   {
 	  if (curTask != TASK_BR) osDelay(1000);
 	  else {
+//		  osDelay(3000); // video demo only
 		  switch(curCmd.val) {
 		  case 30: // BR30 (4x2)
 			  __SET_CMD_CONFIG(cfgs[CONFIG_BR30], &htim8, &htim1, targetAngle);
